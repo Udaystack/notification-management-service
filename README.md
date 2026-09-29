@@ -166,7 +166,8 @@ characters) and a JSON body:
 `channels`, `scheduledAt`, and `expiresAt` are optional. A `scheduledAt` in the past means "send
 now". Unknown fields, duplicate recipients, and duplicate channels are rejected. Checks run in this
 order: `401` → `403` → `400` (every invalid field listed) → idempotency → `400` if `expiresAt` has
-passed → `202` or `422`.
+passed → `202` or `422`. The `202` body is `{id, status, statusUrl}`; `status` is `ACCEPTED`, or
+`SUPPRESSED` when every delivery was suppressed as a duplicate event.
 
 **Idempotency boundary.** `(sourceSystem, Idempotency-Key)` identifies one submission. The service
 stores a SHA-256 hash of the canonical request body (keys sorted, timestamps normalized to UTC;
@@ -183,9 +184,42 @@ field order, whitespace, and time-zone notation don't matter, list order does).
 (`nms.idempotency.cleanup-interval`) then clears the key and hash from the notification; the same
 key is treated as new afterwards. The notification itself is kept.
 
-**Known limitation: no event-level deduplication.** Resubmitting the same business event with a
-*new* `Idempotency-Key` creates and delivers a second notification. Clients must reuse the same
-`Idempotency-Key` when retrying an event.
+Resubmitting the same business event with a *new* `Idempotency-Key` is a new submission; it is
+caught by [event deduplication](#event-deduplication) instead.
+
+## Event deduplication
+
+Source systems often re-emit the same event with a new `Idempotency-Key` (restarts, replays,
+at-least-once producers). The service suppresses such a repeat per recipient and channel, so the
+recipient isn't sent the same alert twice.
+
+- **Key:** `(sourceSystem, eventId, recipientId, channel)`. The boundary is the source system:
+  the same `eventId` from `billing` and from `trading` is independent.
+- **Window:** a delivery is suppressed when another delivery with the same key was created within
+  the window, `nms.dedup.window` (default `24h`, must be a positive duration; startup fails
+  otherwise).
+- **Exclusions:** an earlier delivery that is `FAILED`, `EXPIRED`, or itself `SUPPRESSED` doesn't
+  count, so a source system can re-send after a failure. A different channel or a different source
+  system is never a duplicate. Only channels that routing selected are checked.
+- **Result:** the resubmission is still accepted with `202`. The duplicate delivery is stored as
+  `SUPPRESSED` with `suppressedBy` pointing at the original delivery, and is never sent;
+  `DELIVERY_SUPPRESSED` (reason `DUPLICATE_EVENT`) is audited and `nms.deliveries.suppressed` is
+  incremented. Other deliveries of the same submission are created normally. When every delivery is
+  suppressed, the `202` body and the notification carry overall status `SUPPRESSED`. `422` still
+  means only that routing found no eligible channel.
+- **Concurrency:** submissions of the same key serialize on a transaction-scoped PostgreSQL advisory
+  lock, so of several concurrent submissions exactly one delivery is deliverable.
+- **Data:** delivery data is kept indefinitely; there is no purge policy.
+- **Intentional re-sends** of the same event (for example reminders) must use a new `eventId`.
+- **Contract change (additive):** new delivery and notification status `SUPPRESSED` and the new
+  `suppressedBy` field. Clients that switch exhaustively on status values must handle `SUPPRESSED`.
+
+**Feature flag.** `nms.dedup.enabled` (default `true`). With `false`, intake behaves exactly as
+before event deduplication.
+
+**Rollback.** To disable deduplication, restart with `nms.dedup.enabled=false`. Do not roll back to
+a version without deduplication support once any delivery has been suppressed; see design, Migration
+Plan.
 
 ## Delivery processing
 
@@ -266,7 +300,8 @@ scripts/demo.sh                      # BASE_URL defaults to http://localhost:808
 - OpenAPI: `/swagger-ui.html` (UI) and `/v3/api-docs` (JSON). Authorize with `X-API-Key`.
 - Metrics (Micrometer): `nms.notifications.accepted`, `nms.notifications.rejected{reason}`,
   `nms.deliveries.sent{channel}`, `nms.deliveries.failed{channel,failureClass}`,
-  `nms.deliveries.retried{channel,failureClass}`, `nms.deliveries.expired{channel}`. They are not
+  `nms.deliveries.retried{channel,failureClass}`, `nms.deliveries.expired{channel}`,
+  `nms.deliveries.suppressed{channel,sourceSystem}`. They are not
   exposed over HTTP by default; wire a registry (e.g. Prometheus) to export them.
 - Logs are Logstash-format JSON by default; run with `--spring.profiles.active=local` for
   human-readable logs. Request logs carry `correlationId` (from `X-Correlation-Id` when it is 1–64
@@ -313,8 +348,9 @@ throughput is bounded by `concurrency` and per-delivery time instead of `batch-s
 - **At-least-once delivery.** A delivery reclaimed after a worker crash is sent again under the same
   provider idempotency key (the delivery ID); a provider that ignores idempotency keys could send
   twice. The lease (60s) is kept well above the provider timeout (10s).
-- **No event-level deduplication.** The same event resubmitted with a new `Idempotency-Key` is
-  delivered twice; clients must reuse the key when retrying.
+- **Event deduplication is by event ID only.** The same content under a different `eventId`, and
+  the same event from different source systems, are not deduplicated; deliveries already queued are
+  never suppressed retroactively.
 - **Simulated providers.** No real latency or error shapes; failure-injection markers cover every
   failure class.
 - **Audit growth.** `audit_event` is append-only and unpartitioned; partitioning and archival are

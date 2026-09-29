@@ -13,6 +13,7 @@ public class DeliveryMetrics {
     public static final String FAILED = "nms.deliveries.failed";
     public static final String RETRIED = "nms.deliveries.retried";
     public static final String EXPIRED = "nms.deliveries.expired";
+    public static final String SUPPRESSED = "nms.deliveries.suppressed";
 
     private final MeterRegistry registry;
 
@@ -34,5 +35,9 @@ public class DeliveryMetrics {
 
     void expired(Channel channel) {
         registry.counter(EXPIRED, "channel", channel.name()).increment();
+    }
+
+    public void suppressed(Channel channel, String sourceSystem) {
+        registry.counter(SUPPRESSED, "channel", channel.name(), "sourceSystem", sourceSystem).increment();
     }
 }

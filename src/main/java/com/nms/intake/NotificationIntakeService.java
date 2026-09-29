@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nms.audit.AuditDetails;
 import com.nms.audit.AuditService;
 import com.nms.common.domain.AuditEventType;
-import com.nms.common.domain.NotificationStatus;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
@@ -112,7 +111,7 @@ public class NotificationIntakeService {
         }
         MDC.put("notificationId", ctx.notificationId().toString());
         meters.counter(ACCEPTED_METRIC).increment();
-        return new SubmissionResult(ctx.notificationId(), NotificationStatus.ACCEPTED, false);
+        return new SubmissionResult(ctx.notificationId(), ctx.status(), false);
     }
 
     private SubmissionResult answerExisting(String sourceSystem, StoredNotification existing, String requestHash) {

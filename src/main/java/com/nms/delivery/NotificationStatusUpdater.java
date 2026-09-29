@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Recomputes the cached overall status from the delivery states, in the caller's transaction. */
 @Component
-class NotificationStatusUpdater {
+public class NotificationStatusUpdater {
 
     private final JdbcClient jdbc;
 
@@ -21,8 +21,9 @@ class NotificationStatusUpdater {
         this.jdbc = jdbc;
     }
 
+    /** @return the recomputed overall status */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void recompute(UUID notificationId, Instant now) {
+    public NotificationStatus recompute(UUID notificationId, Instant now) {
         List<DeliveryStatus> statuses = jdbc.sql("SELECT status FROM delivery WHERE notification_id = :id")
                 .param("id", notificationId)
                 .query((rs, row) -> DeliveryStatus.valueOf(rs.getString(1)))
@@ -36,5 +37,6 @@ class NotificationStatusUpdater {
                 .param("now", Timestamp.from(now))
                 .param("id", notificationId)
                 .update();
+        return status;
     }
 }

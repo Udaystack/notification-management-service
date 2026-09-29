@@ -20,7 +20,8 @@ public record NmsProperties(
         @Valid @NotNull Routing routing,
         @Valid @NotNull Idempotency idempotency,
         @Valid @NotNull Retry retry,
-        @Valid @NotNull Worker worker) {
+        @Valid @NotNull Worker worker,
+        @Valid @NotNull Dedup dedup) {
 
     public record Intake(@Min(1) int maxRecipients) {}
 
@@ -41,4 +42,18 @@ public record NmsProperties(
             @NotNull Duration leaseDuration,
             @NotNull Duration providerTimeout,
             @NotNull Duration shutdownTimeout) {}
+
+    /**
+     * Event-level deduplication.
+     *
+     * @param window how far back an earlier delivery of the same event counts as a duplicate; must be positive
+     */
+    public record Dedup(boolean enabled, @NotNull Duration window) {
+
+        public Dedup {
+            if (window != null && (window.isZero() || window.isNegative())) {
+                throw new IllegalArgumentException("nms.dedup.window must be a positive duration, but was " + window);
+            }
+        }
+    }
 }

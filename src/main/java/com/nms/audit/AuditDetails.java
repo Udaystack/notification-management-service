@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Builder for the {@code details} of an audit event. It only offers non-sensitive fields: there is no way to
@@ -42,6 +43,13 @@ public final class AuditDetails {
     /** Stores the address masked; the raw value is never kept. */
     public AuditDetails address(Channel channel, String rawAddress) {
         values.put("address", AddressMasker.mask(channel, rawAddress));
+        return this;
+    }
+
+    /** The deliverable delivery that a suppressed delivery duplicates. */
+    public AuditDetails original(UUID notificationId, UUID deliveryId) {
+        values.put("originalDeliveryId", deliveryId.toString());
+        values.put("originalNotificationId", notificationId.toString());
         return this;
     }
 
