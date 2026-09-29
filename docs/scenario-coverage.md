@@ -8,6 +8,7 @@ Every scenario in `openspec/specs/` has at least one test named after it
 | Scenario | Test |
 |---|---|
 | Full lifecycle is auditable | `ReadApiIT.fullLifecycleIsAuditable` |
+| Suppression is auditable | `EventDedupIT.suppressionIsAuditable` |
 | Audit for unknown notification | `ReadApiIT.auditForUnknownNotification` |
 | Audit owned by another source system | `ReadApiIT.auditOwnedByAnotherSourceSystem` |
 | Message content excluded | `LoggingIT.messageContentExcluded`, `SensitiveDataIT.messageContentExcluded` |
@@ -40,6 +41,20 @@ Every scenario in `openspec/specs/` has at least one test named after it
 | Claimed after expiry | `DeliveryProcessingIT.claimedAfterExpiry` |
 | Injected failure | `SimulatedProviderTest.injectedFailure` |
 
+## event-deduplication
+
+| Scenario | Test |
+|---|---|
+| Same event resubmitted with a new key | `EventDedupIT.sameEventResubmittedWithANewKey` |
+| Partial overlap | `EventDedupIT.partialOverlap` |
+| Different channel is not a duplicate | `EventDedupIT.differentChannelIsNotADuplicate` |
+| Outside the window | `EventDedupIT.outsideTheWindow` |
+| Original delivery failed | `EventDedupIT.originalDeliveryFailed` |
+| Different source systems | `EventDedupIT.differentSourceSystems` |
+| Concurrent duplicate events | `EventDedupIT.concurrentDuplicateEvents` |
+| Feature disabled | `DuplicateEventDedupOffIT.featureDisabled` |
+| Window configured | `EventDedupWindowIT.windowConfigured` |
+
 ## idempotency
 
 | Scenario | Test |
@@ -58,10 +73,13 @@ Every scenario in `openspec/specs/` has at least one test named after it
 |---|---|
 | Status of an in-progress notification | `NotificationStatusDeriverTest.statusOfAnInProgressNotification`, `ReadApiIT.statusOfAnInProgressNotification` |
 | Addresses masked | `ReadApiIT.addressesMasked` |
+| Suppressed delivery shows its origin | `SuppressedStatusApiIT.suppressedDeliveryShowsItsOrigin` |
 | Unknown notification | `ReadApiIT.unknownNotification` |
 | Notification owned by another source system | `ReadApiIT.notificationOwnedByAnotherSourceSystem` |
 | Derived partial delivery | `NotificationStatusDeriverTest.derivedPartialDelivery` |
-| Invalid transition rejected | `DeliveryStateMachineTest.invalidTransitionRejected` |
+| Suppressed deliveries ignored | `NotificationStatusDeriverTest.suppressedDeliveriesIgnored` |
+| Fully suppressed notification | `NotificationStatusDeriverTest.fullySuppressedNotification`, `SuppressedStatusApiIT.fullySuppressedNotification` |
+| Invalid transition rejected | `DeliveryStateMachineTest.invalidTransitionRejected`, `DeliveryStateMachineTest.invalidTransitionRejectedFromSuppressed` |
 
 ## notification-submission
 
