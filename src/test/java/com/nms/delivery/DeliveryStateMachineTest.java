@@ -6,6 +6,7 @@ import static com.nms.common.domain.DeliveryStatus.IN_FLIGHT;
 import static com.nms.common.domain.DeliveryStatus.PENDING;
 import static com.nms.common.domain.DeliveryStatus.RETRY_SCHEDULED;
 import static com.nms.common.domain.DeliveryStatus.SENT;
+import static com.nms.common.domain.DeliveryStatus.SUPPRESSED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -40,7 +41,9 @@ class DeliveryStateMachineTest {
         "PENDING, SENT",
         "PENDING, FAILED",
         "RETRY_SCHEDULED, SENT",
-        "IN_FLIGHT, PENDING"
+        "IN_FLIGHT, PENDING",
+        "PENDING, SUPPRESSED",
+        "IN_FLIGHT, SUPPRESSED"
     })
     void invalidTransitionRejected(DeliveryStatus from, DeliveryStatus to) {
         assertThat(DeliveryStateMachine.canTransition(from, to)).isFalse();
@@ -58,5 +61,14 @@ class DeliveryStateMachineTest {
         assertThat(PENDING.isTerminal()).isFalse();
         assertThat(IN_FLIGHT.isTerminal()).isFalse();
         assertThat(RETRY_SCHEDULED.isTerminal()).isFalse();
+    }
+
+    @ParameterizedTest(name = "SUPPRESSED -> {0} rejected")
+    @org.junit.jupiter.params.provider.EnumSource(DeliveryStatus.class)
+    void invalidTransitionRejectedFromSuppressed(DeliveryStatus to) {
+        assertThat(DeliveryStateMachine.canTransition(SUPPRESSED, to)).isFalse();
+        assertThatThrownBy(() -> DeliveryStateMachine.transition(SUPPRESSED, to))
+                .isInstanceOf(DeliveryStateMachine.InvalidTransitionException.class);
+        assertThat(SUPPRESSED.isTerminal()).isTrue();
     }
 }

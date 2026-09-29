@@ -6,6 +6,8 @@ public enum DeliveryStatus {
     SENT(true),
     RETRY_SCHEDULED(false),
     FAILED(true),
+    /** Duplicate of an earlier delivery of the same event; assigned only at creation and never sent. */
+    SUPPRESSED(true),
     EXPIRED(true);
 
     private final boolean terminal;

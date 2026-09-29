@@ -6,5 +6,7 @@ public enum NotificationStatus {
     COMPLETED,
     PARTIALLY_DELIVERED,
     FAILED,
-    EXPIRED
+    EXPIRED,
+    /** Every delivery was suppressed as a duplicate event. */
+    SUPPRESSED
 }

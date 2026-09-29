@@ -6,6 +6,7 @@ import static com.nms.common.domain.DeliveryStatus.IN_FLIGHT;
 import static com.nms.common.domain.DeliveryStatus.PENDING;
 import static com.nms.common.domain.DeliveryStatus.RETRY_SCHEDULED;
 import static com.nms.common.domain.DeliveryStatus.SENT;
+import static com.nms.common.domain.DeliveryStatus.SUPPRESSED;
 
 import com.nms.common.domain.DeliveryStatus;
 import java.util.EnumMap;
@@ -26,6 +27,8 @@ public final class DeliveryStateMachine {
         ALLOWED.put(SENT, EnumSet.noneOf(DeliveryStatus.class));
         ALLOWED.put(FAILED, EnumSet.noneOf(DeliveryStatus.class));
         ALLOWED.put(EXPIRED, EnumSet.noneOf(DeliveryStatus.class));
+        // Assigned only when a delivery is created; nothing leads into or out of it.
+        ALLOWED.put(SUPPRESSED, EnumSet.noneOf(DeliveryStatus.class));
     }
 
     private DeliveryStateMachine() {

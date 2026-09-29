@@ -56,6 +56,7 @@ Each notification has one **delivery** per (recipient, channel). Delivery states
 | `SENT` | yes | The provider accepted it |
 | `FAILED` | yes | Non-retryable failure, or retries exhausted |
 | `EXPIRED` | yes | The notification's `expiresAt` passed before it could be delivered |
+| `SUPPRESSED` | yes | Duplicate of an earlier delivery of the same event (see [Event deduplication](#event-deduplication)); assigned only at creation, never sent |
 
 Allowed transitions (anything else is rejected and leaves the stored state unchanged):
 
@@ -65,17 +66,21 @@ IN_FLIGHT       -> SENT | RETRY_SCHEDULED | FAILED | EXPIRED | IN_FLIGHT (reclai
 RETRY_SCHEDULED -> IN_FLIGHT | EXPIRED
 ```
 
+`SUPPRESSED` is set only when a delivery is created; no transition leads into or out of it.
+
 The notification's overall status is **derived** from its deliveries (and cached on the
-notification in the same transaction as every delivery change):
+notification in the same transaction as every delivery change). `SUPPRESSED` deliveries are ignored,
+except in the last rule:
 
 | Status | Rule |
 |---|---|
 | `ACCEPTED` | Every delivery is still `PENDING` |
 | `IN_PROGRESS` | At least one delivery has left `PENDING` and at least one is not terminal |
-| `COMPLETED` | All deliveries `SENT` |
+| `COMPLETED` | All non-suppressed deliveries `SENT` (at least one) |
 | `PARTIALLY_DELIVERED` | All terminal, at least one `SENT` and at least one `FAILED` or `EXPIRED` |
 | `FAILED` | All terminal, none `SENT`, at least one `FAILED` |
 | `EXPIRED` | All terminal, none `SENT`, none `FAILED` |
+| `SUPPRESSED` | Every delivery is `SUPPRESSED` |
 
 ## Security
 

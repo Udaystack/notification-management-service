@@ -4,6 +4,7 @@ import static com.nms.common.domain.DeliveryStatus.FAILED;
 import static com.nms.common.domain.DeliveryStatus.PENDING;
 import static com.nms.common.domain.DeliveryStatus.RETRY_SCHEDULED;
 import static com.nms.common.domain.DeliveryStatus.SENT;
+import static com.nms.common.domain.DeliveryStatus.SUPPRESSED;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nms.common.domain.NotificationStatus;
@@ -27,5 +28,17 @@ class NotificationStatusDeriverTest {
     void derivedPartialDelivery() {
         assertThat(NotificationStatusDeriver.derive(List.of(SENT, FAILED)))
                 .isEqualTo(NotificationStatus.PARTIALLY_DELIVERED);
+    }
+
+    @Test
+    void suppressedDeliveriesIgnored() {
+        assertThat(NotificationStatusDeriver.derive(List.of(SENT, SUPPRESSED))).isEqualTo(NotificationStatus.COMPLETED);
+        assertThat(NotificationStatusDeriver.derive(List.of(PENDING, SUPPRESSED))).isEqualTo(NotificationStatus.ACCEPTED);
+    }
+
+    @Test
+    void fullySuppressedNotification() {
+        assertThat(NotificationStatusDeriver.derive(List.of(SUPPRESSED, SUPPRESSED)))
+                .isEqualTo(NotificationStatus.SUPPRESSED);
     }
 }
