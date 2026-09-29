@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end demo against a running NMS instance: happy path, idempotent replay, conflict,
-# retries, failures, and the main error responses. Requires curl and jq.
+# event deduplication, retries, failures, and the main error responses. Requires curl and jq.
 #
 #   docker compose up -d --wait
 #   java -jar target/notification-management-service-0.1.0-SNAPSHOT.jar --spring.profiles.active=local
@@ -68,6 +68,16 @@ expect "$(jq -r .id <<<"$resp")" "$ID" "same notification ID"
 section "Conflict (same key, different body)"
 read -r code resp < <(submit "$RUN-happy" "$(body cust-1001 '.subject = "Changed"')")
 expect "$code" 409 "reuse key with different body"
+
+section "Event deduplication (same event, new key)"
+read -r code resp < <(submit "$RUN-dedup" "$(body cust-1001)")
+expect "$code" 202 "same event resubmitted with a new key"
+expect "$(jq -r .status <<<"$resp")" SUPPRESSED "overall status in 202 body"
+DUP=$(jq -r .id <<<"$resp")
+ORIGINAL_DELIVERY=$(get "/api/v1/notifications/$ID" | jq -r '.deliveries[0].id')
+get "/api/v1/notifications/$DUP" | jq '{status, deliveries: [.deliveries[] | {channel, status, suppressedBy, attemptCount, nextAttemptAt, completedAt}]}'
+expect "$(get "/api/v1/notifications/$DUP" | jq -r '.deliveries[0].suppressedBy.deliveryId')" "$ORIGINAL_DELIVERY" "suppressedBy points at the original delivery"
+get "/api/v1/notifications/$DUP/audit" | jq -r '.events[] | "  \(.eventType) \(.reasonCode // "")"'
 
 section "Retry: +flaky fails once, then succeeds"
 read -r code resp < <(submit "$RUN-flaky" "$(body cust-2007)")
