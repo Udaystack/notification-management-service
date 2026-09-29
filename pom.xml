@@ -101,4 +101,33 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Runs the whole suite with event deduplication off: mvn verify -Pdedup-off -->
+        <profile>
+            <id>dedup-off</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <nms.dedup.enabled>false</nms.dedup.enabled>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <nms.dedup.enabled>false</nms.dedup.enabled>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

@@ -28,10 +28,12 @@ All service settings live under `nms.*` in `src/main/resources/application.yml`.
 ## Tests
 
 ```bash
-mvn verify
+mvn verify                # event deduplication on (default)
+mvn verify -Pdedup-off    # the same suite with nms.dedup.enabled=false
 ```
 
-Unit tests run with Surefire (`*Test`); integration tests run with Failsafe (`*IT`) against a
+The `dedup-off` profile proves that switching deduplication off restores the previous behavior;
+deduplication tests set the flag they need themselves, so they pass in both runs. Unit tests run with Surefire (`*Test`); integration tests run with Failsafe (`*IT`) against a
 throwaway PostgreSQL 16 Testcontainer, so Docker must be running. The local Compose database is
 not used by tests.
 
