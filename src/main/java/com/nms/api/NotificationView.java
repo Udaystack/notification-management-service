@@ -26,7 +26,11 @@ public record NotificationView(
             String status,
             int attemptCount,
             String lastFailureClass,
+            SuppressedBy suppressedBy,
             Instant lastAttemptAt,
             Instant nextAttemptAt,
             Instant completedAt) {}
+
+    /** The original delivery a {@code SUPPRESSED} delivery duplicates; always of the same source system. */
+    public record SuppressedBy(UUID notificationId, UUID deliveryId) {}
 }

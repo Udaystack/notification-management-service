@@ -22,10 +22,12 @@ class NotificationQueryRepository {
 
     Optional<NotificationView> find(UUID id, String sourceSystem) {
         List<NotificationView.DeliveryView> deliveries = jdbc.sql("""
-                SELECT id, recipient_id, channel, address_masked, status, attempt_count, last_failure_class,
-                       last_attempt_at, next_attempt_at, completed_at
-                FROM delivery WHERE notification_id = :id
-                ORDER BY created_at, recipient_id, channel
+                SELECT d.id, d.recipient_id, d.channel, d.address_masked, d.status, d.attempt_count,
+                       d.last_failure_class, d.suppressed_by, o.notification_id AS suppressed_by_notification,
+                       d.last_attempt_at, d.next_attempt_at, d.completed_at
+                FROM delivery d LEFT JOIN delivery o ON o.id = d.suppressed_by
+                WHERE d.notification_id = :id
+                ORDER BY d.created_at, d.recipient_id, d.channel
                 """)
                 .param("id", id)
                 .query((rs, row) -> new NotificationView.DeliveryView(
@@ -36,6 +38,7 @@ class NotificationQueryRepository {
                         rs.getString("status"),
                         rs.getInt("attempt_count"),
                         rs.getString("last_failure_class"),
+                        suppressedBy(rs),
                         instant(rs, "last_attempt_at"),
                         instant(rs, "next_attempt_at"),
                         instant(rs, "completed_at")))
@@ -68,6 +71,12 @@ class NotificationQueryRepository {
                 .param("sourceSystem", sourceSystem)
                 .query(Integer.class)
                 .single() > 0;
+    }
+
+    private static NotificationView.SuppressedBy suppressedBy(ResultSet rs) throws SQLException {
+        UUID deliveryId = rs.getObject("suppressed_by", UUID.class);
+        return deliveryId == null ? null
+                : new NotificationView.SuppressedBy(rs.getObject("suppressed_by_notification", UUID.class), deliveryId);
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {

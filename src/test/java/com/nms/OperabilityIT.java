@@ -21,7 +21,8 @@ class OperabilityIT extends ApiTestSupport {
         mvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paths['/api/v1/notifications']").exists())
-                .andExpect(jsonPath("$.paths['/api/v1/notifications/{id}/audit']").exists());
+                .andExpect(jsonPath("$.paths['/api/v1/notifications/{id}/audit']").exists())
+                .andExpect(jsonPath("$.components.schemas.DeliveryView.properties.suppressedBy").exists());
         mvc.perform(get("/swagger-ui.html")).andExpect(status().is3xxRedirection());
         mvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
     }

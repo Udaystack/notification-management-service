@@ -221,6 +221,41 @@ before event deduplication.
 a version without deduplication support once any delivery has been suppressed; see design, Migration
 Plan.
 
+## Reading status and audit
+
+`GET /api/v1/notifications/{id}` returns the notification's `eventId`, `type`, `severity`,
+`priority`, overall `status` (see [State model](#state-model)), `selectedChannels`, `createdAt`,
+`scheduledAt`, `expiresAt`, and one entry per delivery: `id`, `recipientId`, `channel`, `address`
+(masked, e.g. `j***@example.com`), `status`, `attemptCount`, `lastFailureClass`, `suppressedBy`,
+`lastAttemptAt`, `nextAttemptAt`, and `completedAt`. Subject and body are never returned.
+
+`suppressedBy` is `{notificationId, deliveryId}` of the original delivery for a `SUPPRESSED`
+delivery and `null` for every other delivery. The original always belongs to the same source system.
+A suppressed delivery has `attemptCount` 0, `nextAttemptAt` `null`, and `completedAt` equal to its
+creation time:
+
+```json
+{
+  "id": "…",
+  "recipientId": "cust-1001",
+  "channel": "EMAIL",
+  "address": "j***@example.com",
+  "status": "SUPPRESSED",
+  "attemptCount": 0,
+  "lastFailureClass": null,
+  "suppressedBy": { "notificationId": "…", "deliveryId": "…" },
+  "lastAttemptAt": null,
+  "nextAttemptAt": null,
+  "completedAt": "2026-09-29T10:00:00.123456Z"
+}
+```
+
+`GET /api/v1/notifications/{id}/audit` returns `{notificationId, events}`, oldest first; each event
+has `id`, `notificationId`, `deliveryId`, `eventType`, `reasonCode`, `details`, and `occurredAt`.
+
+Both endpoints answer `404 Not Found` for an unknown ID and for a notification owned by another
+source system.
+
 ## Delivery processing
 
 **PostgreSQL is the queue.** Deliveries are rows, enqueued in the same transaction that accepts the
