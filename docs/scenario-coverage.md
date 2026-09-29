@@ -1,6 +1,6 @@
 # Scenario coverage
 
-Every scenario in `openspec/changes/add-notification-core/specs/` has at least one test named after it
+Every scenario in `openspec/specs/` has at least one test named after it
 (the scenario title in camelCase). Unit tests end in `Test`, integration tests in `IT`.
 
 ## audit-history
