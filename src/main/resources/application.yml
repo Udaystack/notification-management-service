@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: notification-management-service
+  datasource:
+    url: ${NMS_DB_URL:jdbc:postgresql://localhost:5432/nms}
+    username: ${NMS_DB_USER:nms}
+    password: ${NMS_DB_PASSWORD:nms}
+  flyway:
+    enabled: true
+  threads:
+    virtual:
+      enabled: true
+  mvc:
+    problemdetails:
+      enabled: true
+
+logging:
+  structured:
+    format:
+      console: logstash
+
+nms:
+  intake:
+    max-recipients: 100
+  routing:
+    default-channels:
+      TRANSACTIONAL: [EMAIL]
+      ALERT: [EMAIL, PUSH]
+      SECURITY: [EMAIL, SMS]
+      MARKETING: [EMAIL]
+    severity-escalation:
+      CRITICAL: [SMS]
+    fallback-channel: EMAIL
+  idempotency:
+    retention: 7d
+    cleanup-interval: 1h
+  retry:
+    base-delay: 2s
+    max-delay: 5m
+    max-attempts: 5
+  worker:
+    enabled: true
+    concurrency: 20
+    batch-size: 20
+    poll-interval: 500ms
+    lease-duration: 60s
+    provider-timeout: 10s
+    shutdown-timeout: 30s

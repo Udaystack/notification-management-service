@@ -1,0 +1,5 @@
+# Human-readable console logs for local development: --spring.profiles.active=local
+logging:
+  structured:
+    format:
+      console: ""
