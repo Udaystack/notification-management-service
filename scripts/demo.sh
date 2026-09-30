@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end demo against a running NMS instance: happy path, idempotent replay, conflict,
-# event deduplication, retries, failures, and the main error responses. Requires curl and jq.
+# event deduplication, a signed webhook, retries, failures, and the main error responses.
+# Requires curl, jq, and python3 (for the webhook receiver).
 #
 #   docker compose up -d --wait
 #   java -jar target/notification-management-service-0.1.0-SNAPSHOT.jar --spring.profiles.active=local
@@ -78,6 +79,22 @@ ORIGINAL_DELIVERY=$(get "/api/v1/notifications/$ID" | jq -r '.deliveries[0].id')
 get "/api/v1/notifications/$DUP" | jq '{status, deliveries: [.deliveries[] | {channel, status, suppressedBy, attemptCount, nextAttemptAt, completedAt}]}'
 expect "$(get "/api/v1/notifications/$DUP" | jq -r '.deliveries[0].suppressedBy.deliveryId')" "$ORIGINAL_DELIVERY" "suppressedBy points at the original delivery"
 get "/api/v1/notifications/$DUP/audit" | jq -r '.events[] | "  \(.eventType) \(.reasonCode // "")"'
+
+section "Webhook: signed POST to a local receiver (cust-3001)"
+RECEIVER_LOG=$(mktemp)
+python3 "$(dirname "$0")/webhook-receiver.py" 9099 >"$RECEIVER_LOG" 2>&1 &
+RECEIVER_PID=$!
+trap 'kill "$RECEIVER_PID" 2>/dev/null || true; rm -f "$RECEIVER_LOG"' EXIT
+sleep 1
+read -r code resp < <(submit "$RUN-webhook" "$(body cust-3001 '.channels = ["WEBHOOK"]')")
+expect "$code" 202 "submit WEBHOOK to cust-3001"
+WID=$(jq -r .id <<<"$resp")
+echo "  final status: $(wait_for "$WID" COMPLETED)"
+get "/api/v1/notifications/$WID" | jq -c '.deliveries[0] | {channel, address, status, attemptCount}'
+RECEIPT=$(tail -n 1 "$RECEIVER_LOG")
+echo "  receiver: $RECEIPT"
+expect "$(jq -r .verified <<<"$RECEIPT")" true "receiver verified the signature"
+expect "$(jq -r .idempotencyKey <<<"$RECEIPT")" "$(get "/api/v1/notifications/$WID" | jq -r '.deliveries[0].id')" "Idempotency-Key is the delivery ID"
 
 section "Retry: +flaky fails once, then succeeds"
 read -r code resp < <(submit "$RUN-flaky" "$(body cust-2007)")

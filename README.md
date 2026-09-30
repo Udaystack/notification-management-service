@@ -339,6 +339,9 @@ works the same way). It is the only real outbound provider; the others are simul
 | `signing-secret` | `${NMS_WEBHOOK_SIGNING_SECRET:}` | HMAC key. Required when `enabled` is true (startup fails otherwise). Never logged, audited, or returned. |
 | `allow-private-hosts` | `false` | Also allow `http` and non-public addresses. For local development and tests only. |
 
+The `local` profile enables webhooks with private hosts and a dev-only secret
+(`local-dev-only-not-a-secret`, overridable with `NMS_WEBHOOK_SIGNING_SECRET`).
+
 **Request.** One `POST` per attempt, `Content-Type: application/json`:
 
 ```json
@@ -363,6 +366,8 @@ constant time, and reject stale timestamps to prevent replays. In Python:
 expected = "sha256=" + hmac.new(secret, f"{timestamp}.".encode() + raw_body, hashlib.sha256).hexdigest()
 ok = hmac.compare_digest(expected, request.headers["X-NMS-Signature"])
 ```
+
+`scripts/webhook-receiver.py` is a complete example.
 
 **Target policy (SSRF protection).** Right before each call the URL must be `https`, and every
 address its host resolves to must be public: not loopback (including `0.0.0.0`/`::`), private
@@ -397,9 +402,11 @@ delivery stalls the claim of its batch). See design, Migration Plan.
 
 ## Demo
 
-`scripts/demo.sh` walks through the happy path, idempotent replay, conflict, a retry (`+flaky`),
-permanent failures, rate limiting, and the `400`/`401`/`403`/`422`/`404` responses against a running
-instance. It needs `curl` and `jq`.
+`scripts/demo.sh` walks through the happy path, idempotent replay, conflict, event deduplication, a
+signed webhook to a local receiver (`scripts/webhook-receiver.py` on port 9099, started and stopped by
+the demo), a retry (`+flaky`), permanent failures, rate limiting, and the `400`/`401`/`403`/`422`/`404`
+responses against a running instance started with the `local` profile. It needs `curl`, `jq`, and
+`python3`.
 
 ```bash
 docker compose up -d --wait

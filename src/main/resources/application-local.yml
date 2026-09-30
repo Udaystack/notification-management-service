@@ -3,3 +3,11 @@ logging:
   structured:
     format:
       console: ""
+
+# Webhooks for local development and the demo (scripts/demo.sh starts a receiver on localhost:9099).
+# The signing secret below is a dev-only value, not a secret: never use it outside the local profile.
+nms:
+  webhook:
+    enabled: true
+    allow-private-hosts: true
+    signing-secret: ${NMS_WEBHOOK_SIGNING_SECRET:local-dev-only-not-a-secret}
