@@ -30,7 +30,7 @@ class WebhookPropertiesTest {
                     "nms.retry.base-delay=2s", "nms.retry.max-delay=5m", "nms.retry.max-attempts=5",
                     "nms.worker.enabled=false", "nms.worker.concurrency=1", "nms.worker.batch-size=1",
                     "nms.worker.poll-interval=1s", "nms.worker.lease-duration=60s",
-                    "nms.worker.provider-timeout=10s", "nms.worker.shutdown-timeout=1s",
+                    "nms.worker.provider-timeout=10s", "nms.worker.shutdown-timeout=1s", "nms.worker.priority-aging=5m",
                     "nms.dedup.enabled=true", "nms.dedup.window=24h");
 
     @Test

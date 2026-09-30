@@ -46,6 +46,7 @@ nms:
     lease-duration: 60s
     provider-timeout: 10s
     shutdown-timeout: 30s
+    priority-aging: 5m
   dedup:
     enabled: true
     window: 24h

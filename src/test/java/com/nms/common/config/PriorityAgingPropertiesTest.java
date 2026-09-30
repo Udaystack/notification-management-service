@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 
-class DedupPropertiesTest {
+class PriorityAgingPropertiesTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(NmsProperties.class)
@@ -29,24 +29,25 @@ class DedupPropertiesTest {
                     "nms.retry.base-delay=2s", "nms.retry.max-delay=5m", "nms.retry.max-attempts=5",
                     "nms.worker.enabled=false", "nms.worker.concurrency=1", "nms.worker.batch-size=1",
                     "nms.worker.poll-interval=1s", "nms.worker.lease-duration=60s",
-                    "nms.worker.provider-timeout=10s", "nms.worker.shutdown-timeout=1s", "nms.worker.priority-aging=5m",
-                    "nms.dedup.enabled=true", "nms.webhook.enabled=false");
+                    "nms.worker.provider-timeout=10s", "nms.worker.shutdown-timeout=1s",
+                    "nms.dedup.enabled=true", "nms.dedup.window=24h", "nms.webhook.enabled=false");
 
     @Test
-    void positiveWindowIsAccepted() {
-        runner.withPropertyValues("nms.dedup.window=24h").run(ctx -> {
-            assertThat(ctx).hasNotFailed();
-            assertThat(ctx.getBean(NmsProperties.class).dedup().window()).isEqualTo(Duration.ofHours(24));
+    void negativeAgingIntervalRejected() {
+        runner.withPropertyValues("nms.worker.priority-aging=-1m").run(ctx -> {
+            assertThat(ctx).hasFailed();
+            assertThat(ctx.getStartupFailure()).rootCause()
+                    .hasMessageContaining("nms.worker.priority-aging must not be negative");
         });
     }
 
     @Test
-    void zeroOrNegativeWindowFailsStartupWithClearMessage() {
-        for (String window : new String[] {"0s", "-1h"}) {
-            runner.withPropertyValues("nms.dedup.window=" + window).run(ctx -> {
-                assertThat(ctx).hasFailed();
-                assertThat(ctx.getStartupFailure()).rootCause()
-                        .hasMessageContaining("nms.dedup.window must be a positive duration");
+    void zeroAndPositiveIntervalsStart() {
+        for (String interval : new String[] {"0", "5m"}) {
+            runner.withPropertyValues("nms.worker.priority-aging=" + interval).run(ctx -> {
+                assertThat(ctx).hasNotFailed();
+                assertThat(ctx.getBean(NmsProperties.class).worker().priorityAging())
+                        .isEqualTo(interval.equals("0") ? Duration.ZERO : Duration.ofMinutes(5));
             });
         }
     }

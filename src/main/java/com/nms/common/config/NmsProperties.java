@@ -35,6 +35,10 @@ public record NmsProperties(
 
     public record Retry(@NotNull Duration baseDelay, @NotNull Duration maxDelay, @Min(1) int maxAttempts) {}
 
+    /**
+     * @param priorityAging a waiting delivery's effective rank rises one level per full interval since it became due
+     *     (capped at HIGH); {@code 0} disables aging, negative values are rejected
+     */
     public record Worker(
             boolean enabled,
             @Min(1) int concurrency,
@@ -42,7 +46,16 @@ public record NmsProperties(
             @NotNull Duration pollInterval,
             @NotNull Duration leaseDuration,
             @NotNull Duration providerTimeout,
-            @NotNull Duration shutdownTimeout) {}
+            @NotNull Duration shutdownTimeout,
+            @NotNull Duration priorityAging) {
+
+        public Worker {
+            if (priorityAging != null && priorityAging.isNegative()) {
+                throw new IllegalArgumentException(
+                        "nms.worker.priority-aging must not be negative, but was " + priorityAging);
+            }
+        }
+    }
 
     /**
      * Event-level deduplication.
