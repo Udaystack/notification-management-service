@@ -193,8 +193,8 @@ Every spec scenario has a test named after it; see [docs/scenario-coverage.md](d
   status-code mapping, timeouts, redirects, and signatures.
 - **Characterization tests first:** before any behavior change, tests pin the current behavior, so
   every difference afterwards is a reviewed, intended diff.
-- **Flag profiles:** `-Pdedup-off` run the whole suite with a
-  feature switched off, to prove the old behavior still holds.
+- **Flag profiles:** the whole suite also runs with deduplication switched off (`-Pdedup-off`)
+  and must stay green in both modes.
 - **Traceability:** every spec scenario has a test named after it
   (`docs/scenario-coverage.md`).
 - **End to end and load:** `scripts/demo.sh` against a running instance, and the k6 load test.
