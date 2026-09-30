@@ -6,6 +6,122 @@ delivers them asynchronously with bounded retries, and exposes status and audit 
 Stack: Java 21, Spring Boot 3.5, Maven, PostgreSQL 16, Flyway, Docker Compose.
 Tests: JUnit 5, MockMvc, Testcontainers.
 
+## Deliverables
+
+| Deliverable | Where |
+|---|---|
+| Working prototype (runnable end-to-end) | [Setup](#setup), then [Demo](#demo) (`scripts/demo.sh` drives every feature against a running instance) and [Load test](#load-test) |
+| Architecture overview | [Architecture overview](#architecture-overview): the service (components, control flow, key decisions) and how it was built (tools, execution approach) |
+| Three scenarios: greenfield, brownfield, ambiguous | [Scenarios](#scenarios): decomposition, execution, and validation of each. One branch per scenario: [`greenfield`](https://github.com/Udaystack/notification-management-service/tree/greenfield) → [`brownfield`](https://github.com/Udaystack/notification-management-service/tree/brownfield) → [`ambiguous-requirements`](https://github.com/Udaystack/notification-management-service/tree/ambiguous-requirements); each builds on the previous one |
+| Setup instructions | [Setup](#setup) |
+| Testing approach, limitations, and trade-offs | [Tests](#tests) and [Limitations and trade-offs](#limitations-and-trade-offs) |
+
+This README describes the **`greenfield`** branch. Later scenarios live on later branches.
+
+## Architecture overview
+
+### Service
+
+| Component (package) | Responsibility |
+|---|---|
+| `api` | REST endpoints (`POST /api/v1/notifications`, `GET …/{id}`, `GET …/{id}/audit`), Problem Details errors, OpenAPI |
+| `security` | `X-API-Key` filter: maps each key to one source system; reads are scoped to it |
+| `intake` | Request validation, idempotency, and the intake pipeline: ordered steps in one transaction |
+| `routing`, `recipient` | Routing policy (requested/default channels, escalation, opt-out, missing address, fallback) and recipient preferences |
+| `delivery` | PostgreSQL queue (claim with `FOR UPDATE SKIP LOCKED`), poller, worker, outcome recorder, state machine, derived status, metrics |
+| `channel` | Provider port; simulated EMAIL/SMS/PUSH providers with failure injection |
+| `retry` | Exponential backoff with full jitter, retry-after, expiry |
+| `audit` | Append-only audit history; details builder that cannot hold content or raw addresses |
+| `common` | Settings (`nms.*`), domain enums, address masking, correlation IDs |
+| `db/migration` | Flyway: V1 schema, V2 seed data |
+
+**Control flow.**
+
+1. **Submit:** the API key identifies the source system. The service validates the body, then
+   checks the `Idempotency-Key`: a replay returns `200`, a conflicting body `409`. Then one
+   transaction runs the intake steps:
+   persist notification → route recipients → create deliveries → audit.
+   The client gets `202` without waiting for any provider.
+2. **Deliver:** a poller hands free worker slots to the queue. A claim transaction selects due
+   rows with `FOR UPDATE SKIP LOCKED`, in
+   priority order, marks them
+   `IN_FLIGHT` under a lease, and audits the attempt.
+3. **Send:** the provider is called outside any transaction, bounded by a timeout.
+4. **Record:** a second transaction applies the outcome only if the row is still the claimed version.
+   The delivery becomes `SENT`, `RETRY_SCHEDULED` (backoff), `FAILED`, or `EXPIRED`. The same
+   transaction recomputes the notification's derived status and writes the audit event.
+5. **Read:** status and audit endpoints read the stored state, scoped to the caller's source system,
+   with addresses masked.
+
+**Key decisions** (full rationale in each change's `design.md`):
+
+- **PostgreSQL is the queue (no broker):** enqueueing is atomic with acceptance; `SKIP LOCKED` plus
+  leases give safe concurrency across instances. The `DeliveryQueue` port is the exit path to
+  Kafka or SQS.
+- **Provider calls happen outside transactions,** and outcomes are version-checked: at-least-once
+  delivery, with the delivery ID as the provider idempotency key.
+- **Idempotency relies on a unique constraint,** not check-then-insert; replays compare a canonical
+  request hash.
+- **Overall status is derived from the deliveries,** and an explicit state machine rejects invalid
+  transitions.
+- **Failure classification lives in the provider adapters.** Only `TRANSIENT`, `TIMEOUT`, and
+  `RATE_LIMITED` are retried.
+- **Audit is append-only and written in the same transaction as the change it records;** content
+  and raw addresses can't be written to it.
+
+### How it was built
+
+| Tool | Role |
+|---|---|
+| Claude Code | AI coding agent: reads the code, asks clarifying questions, writes specs and code, runs builds, tests, and git |
+| OpenSpec | Spec-driven change workflow: each change is a proposal, delta specs (requirements with scenarios), a design, and tasks; `openspec validate --strict`; archiving merges the deltas into `openspec/specs/` |
+| Maven, JUnit 5, MockMvc, Testcontainers | Build and tests against a real PostgreSQL 16 |
+| Docker Compose, `scripts/demo.sh`, k6 | Local database, end-to-end demo, load test |
+| Git, GitHub | One branch per scenario; grouped, reviewable commits |
+
+**Execution approach:** the same loop for every change.
+
+1. **Clarify:** read the existing specs and code, list every gap or ambiguity, and ask the user
+   (batched questions, options with a recommendation, terms explained first) instead of assuming.
+2. **Propose** (`/opsx:propose`): proposal → delta specs → design → tasks. Each task names the test
+   that proves it.
+3. **Apply** (`/opsx:apply`): implement task by task and tick each box only when its test passes.
+   Pause and ask whenever the work reveals a gap in the plan.
+4. **Validate:** run the full suite (unit tests plus integration tests against a real
+   PostgreSQL) and check that scenario coverage maps every spec scenario to a test named after it.
+5. **Commit:** one commit per layer.
+6. **Archive** (`/opsx:archive`): merge the change's specs into `openspec/specs/`. For this change
+   that happened at the start of the `brownfield` branch.
+
+The brownfield changes added characterization tests before any behavior change, feature-flag
+profiles, and a full-suite run on every commit on its own (see the `brownfield` branch README).
+
+## Scenarios
+
+Each scenario is one or more OpenSpec changes, shown as **decomposition** (how the request became specs and tasks), **execution** (how it was built), and **validation** (how it was proven).
+
+### 1. Greenfield: build the service from a written brief
+
+Branch: `greenfield`. OpenSpec change: `add-notification-core` (in `openspec/changes/add-notification-core/` on this branch; archived on `brownfield`).
+
+- **Decomposition:** the brief became 6 capabilities (submission, status, routing, idempotency,
+  delivery processing, audit) with 47 scenarios, a design with 13 decisions (D1–D10), and 48 tasks
+  in 10 groups: skeleton, domain, security, audit, routing, submission, delivery, read APIs,
+  operability, integration checks. The first draft filled gaps in the brief with assumptions (for
+  example how long idempotency keys are kept, and auditing of rejected requests). The user asked to
+  be consulted instead, and "ask, don't assume" became the rule for all later work.
+- **Execution:** 14 commits, one per layer (schema → domain → security → audit → routing →
+  channels → intake → API → delivery → observability → end-to-end tests → docs → demo and load
+  test).
+- **Validation:** 117 tests (53 unit, 64 integration against PostgreSQL). Every one of the 47
+  scenarios maps to a test named after it (`docs/scenario-coverage.md`). `scripts/demo.sh` exercises
+  it end to end, and a k6 load test measured about 115 deliveries/s sustained with no backlog.
+
+**Later scenarios**
+
+2. **Brownfield** (event deduplication, webhook channel): see the [`brownfield`](https://github.com/Udaystack/notification-management-service/tree/brownfield) branch README.
+3. **Ambiguous** (delivery priority semantics): see the [`ambiguous-requirements`](https://github.com/Udaystack/notification-management-service/tree/ambiguous-requirements) branch README.
+
 ## Setup
 
 Prerequisites: JDK 21, Maven 3.9+, Docker (with Compose).
@@ -36,6 +152,17 @@ throwaway PostgreSQL 16 Testcontainer, so Docker must be running. The local Comp
 not used by tests.
 
 Every spec scenario has a test named after it; see [docs/scenario-coverage.md](docs/scenario-coverage.md).
+
+**Testing approach.**
+
+- **Unit tests** cover the pure domain: the state machine, status derivation, routing policy, retry
+  policy, masking, validation.
+- **Integration tests** boot the whole application against a real PostgreSQL 16 (Testcontainers)
+  and drive it through the HTTP API (MockMvc) or the worker. They cover real SQL: `SKIP LOCKED`
+  races, constraints, and migrations.
+- **Traceability:** every spec scenario has a test named after it
+  (`docs/scenario-coverage.md`).
+- **End to end and load:** `scripts/demo.sh` against a running instance, and the k6 load test.
 
 ## Stopping
 
@@ -318,3 +445,10 @@ throughput is bounded by `concurrency` and per-delivery time instead of `batch-s
   production path.
 - **Spring Boot 3.5.** Its open-source support has ended; moving to Spring Boot 4.x is future work.
 - **Load test.** Single run on a laptop; numbers are indicative, not a capacity guarantee.
+
+**Process trade-offs.**
+
+- **Asking before building** costs round-trips, but the specs record decisions the user actually
+  made, not guesses.
+- **AI-written code** is trusted only through tests, scenario coverage, and strict spec validation,
+  not by inspection alone.
