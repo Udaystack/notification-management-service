@@ -38,6 +38,12 @@ Every scenario in `openspec/specs/` has at least one test named after it
 |---|---|
 | Successful delivery | `DeliveryProcessingIT.successfulDelivery` |
 | Priority ordering | `DeliveryProcessingIT.priorityOrdering` |
+| Waiting delivery gains priority | `PriorityAgingIT.waitingDeliveryGainsPriority` |
+| Aging disabled | `PriorityAgingDisabledIT.agingDisabled` |
+| Retry competes with new work | `PriorityAgingIT.retryCompetesWithNewWork` |
+| Backoff does not count as waiting | `PriorityAgingIT.backoffDoesNotCountAsWaiting` |
+| Reclaimed lease ordered by lease expiry | `PriorityAgingIT.reclaimedLeaseOrderedByLeaseExpiry` |
+| Negative aging interval rejected | `PriorityAgingPropertiesTest.negativeAgingIntervalRejected` |
 | Unexpected exception | `UnexpectedProviderExceptionIT.unexpectedException` |
 | Transient failure then success | `DeliveryProcessingIT.transientFailureThenSuccess` |
 | Retries exhausted | `DeliveryProcessingIT.retriesExhausted` |
@@ -46,6 +52,9 @@ Every scenario in `openspec/specs/` has at least one test named after it
 | Expires while waiting to retry | `DeliveryProcessingIT.expiresWhileWaitingToRetry` |
 | Claimed after expiry | `DeliveryProcessingIT.claimedAfterExpiry` |
 | Injected failure | `SimulatedProviderTest.injectedFailure` |
+| Queue wait measured | `PriorityObservabilityIT.queueWaitMeasured` |
+| Never-attempted expiry flagged | `PriorityObservabilityIT.neverAttemptedExpiryFlagged` |
+| Expiry after an attempt | `PriorityObservabilityIT.expiryAfterAnAttempt` |
 
 ## event-deduplication
 
@@ -93,6 +102,7 @@ Every scenario in `openspec/specs/` has at least one test named after it
 |---|---|
 | Valid notification is accepted | `SubmissionIT.validNotificationIsAccepted` |
 | Processing is asynchronous | `SubmissionIT.processingIsAsynchronous` |
+| Priority is required | `SubmissionIT.priorityIsRequired` |
 | Missing recipients | `RequestValidatorTest.missingRecipients`, `SubmissionIT.missingRecipients` |
 | Unknown enum value | `RequestValidatorTest.unknownEnumValue`, `SubmissionIT.unknownEnumValue` |
 | Expiry before schedule | `RequestValidatorTest.expiryBeforeSchedule`, `SubmissionIT.expiryBeforeSchedule` |
