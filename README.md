@@ -173,6 +173,7 @@ characters) and a JSON body:
 }
 ```
 
+`priority` is required and chosen by the source system (see [Priority](#priority)).
 `channels`, `scheduledAt`, and `expiresAt` are optional. A `scheduledAt` in the past means "send
 now". Unknown fields, duplicate recipients, and duplicate channels are rejected. Checks run in this
 order: `401` → `403` → `400` (every invalid field listed) → idempotency → `400` if `expiresAt` has
@@ -273,7 +274,7 @@ notification (no broker, no dual write). Workers claim due rows with `FOR UPDATE
 short transaction, so concurrent workers and instances never claim the same row:
 
 - Due = `PENDING`/`RETRY_SCHEDULED` with `nextAttemptAt <= now`, or `IN_FLIGHT` whose lease expired.
-- Order: notification priority (`HIGH` > `NORMAL` > `LOW`), then `nextAttemptAt`.
+- Order: effective priority rank, then due time, oldest first (see [Priority](#priority) below).
 - A claim sets `IN_FLIGHT`, a lease (`locked_until`), and counts an attempt (`DELIVERY_ATTEMPTED`).
   A delivery whose notification passed `expiresAt` becomes `EXPIRED` instead, without an attempt.
 - The provider is called **outside** any transaction, bounded by the provider timeout. The outcome is
@@ -283,6 +284,22 @@ short transaction, so concurrent workers and instances never claim the same row:
   reclaimed after a worker crash is not sent twice.
 - The recipient's full address is read at send time; if it is gone, the delivery fails with
   `INVALID_RECIPIENT` without a provider call.
+
+<a id="priority"></a>**Priority.** The source system sets `priority` (`LOW`, `NORMAL`, `HIGH`) on every request; it is
+required and has no default. Priority only orders claims; there is no latency guarantee for any
+priority.
+
+- **Due time:** `nextAttemptAt` for a first attempt or a retry (so time spent in retry backoff never
+  counts as waiting), or the lease expiry for a delivery reclaimed after a worker crash.
+- **Aging (starvation protection):** the effective rank is the priority rank (`LOW` 0, `NORMAL` 1,
+  `HIGH` 2) plus one for every full `nms.worker.priority-aging` interval (default 5m) since the due
+  time, capped at `HIGH`. The stored priority never changes. `0` switches aging off (strict priority).
+- **Ties** at the same effective rank go to the delivery that has been due longest. Retries and first
+  attempts follow the same rule; neither is preferred.
+
+With the default 5m, a `LOW` delivery due at 10:00 competes as `LOW` until 10:05, as `NORMAL` until
+10:10, and as `HIGH` from 10:10. It then goes ahead of any `HIGH` delivery that became due after
+10:00, so under sustained `HIGH` load a `LOW` delivery waits about 10 minutes rather than forever.
 
 Exit path: the `DeliveryQueue` port can be reimplemented on a broker (Kafka, SQS) when throughput
 outgrows PostgreSQL (roughly a few thousand deliveries per second).
@@ -309,6 +326,7 @@ A retry that would land after `expiresAt` makes the delivery `EXPIRED` instead.
 | `lease-duration` | 60s (must exceed `provider-timeout`, checked at startup) |
 | `provider-timeout` | 10s |
 | `shutdown-timeout` | 30s (graceful: stop claiming, let in-flight deliveries finish) |
+| `priority-aging` | 5m (`0` = strict priority; negative fails startup) |
 
 **Simulated providers and failure injection.** EMAIL, SMS, and PUSH are simulated. An address
 containing a marker decides the outcome:
@@ -422,9 +440,17 @@ scripts/demo.sh                      # BASE_URL defaults to http://localhost:808
 - OpenAPI: `/swagger-ui.html` (UI) and `/v3/api-docs` (JSON). Authorize with `X-API-Key`.
 - Metrics (Micrometer): `nms.notifications.accepted`, `nms.notifications.rejected{reason}`,
   `nms.deliveries.sent{channel}`, `nms.deliveries.failed{channel,failureClass}`,
-  `nms.deliveries.retried{channel,failureClass}`, `nms.deliveries.expired{channel}`,
-  `nms.deliveries.suppressed{channel,sourceSystem}`. They are not
-  exposed over HTTP by default; wire a registry (e.g. Prometheus) to export them.
+  `nms.deliveries.retried{channel,failureClass}`,
+  `nms.deliveries.expired{channel,priority,neverAttempted}`,
+  `nms.deliveries.suppressed{channel,sourceSystem}`, and the timer
+  `nms.deliveries.queue-wait{priority,channel}`. They are not exposed over HTTP by default; wire a
+  registry (e.g. Prometheus) to export them.
+- **Watching priority.** `nms.deliveries.queue-wait` is the time from a delivery's due time to its
+  first claim, recorded once per delivery: it shows how long each priority waits in the queue
+  (provider time and retries are excluded). With aging on, `LOW` should not wait much beyond
+  `2 × priority-aging`. `nms.deliveries.expired{neverAttempted=true}` counts deliveries that expired
+  while still waiting for their first attempt; each also logs a WARN with its notification ID,
+  delivery ID, and priority.
 - Logs are Logstash-format JSON by default; run with `--spring.profiles.active=local` for
   human-readable logs. Request logs carry `correlationId` (from `X-Correlation-Id` when it is 1–64
   characters of `A-Z a-z 0-9 . _ -`, otherwise a generated UUID; echoed on every response) and

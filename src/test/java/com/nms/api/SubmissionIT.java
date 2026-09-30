@@ -49,6 +49,19 @@ class SubmissionIT extends ApiTestSupport {
     }
 
     @Test
+    void priorityIsRequired() throws Exception {
+        ObjectNode body = request("billing", "cust-1001");
+        body.remove("priority");
+        String eventId = body.get("eventId").asText();
+
+        submit(BILLING_KEY, newKey(), body)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("priority"));
+        assertThat(count("SELECT count(*) FROM notification WHERE event_id = ?", eventId)).isZero();
+    }
+
+    @Test
     void unknownEnumValue() throws Exception {
         submit(BILLING_KEY, newKey(), request("billing", "cust-1001").put("severity", "URGENT"))
                 .andExpect(status().isBadRequest())
