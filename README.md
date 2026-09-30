@@ -88,8 +88,6 @@ This README describes the **`ambiguous-requirements`** branch. It contains all t
 
 ## Scenarios
 
-Each scenario is one or more OpenSpec changes, shown as **decomposition** (how the request became specs and tasks), **execution** (how it was built), and **validation** (how it was proven).
-
 ### 1. Greenfield: build the service from a written brief
 
 Branch: `greenfield`. OpenSpec change: `add-notification-core` (archived in `openspec/changes/archive/2026-09-29-add-notification-core/`).
