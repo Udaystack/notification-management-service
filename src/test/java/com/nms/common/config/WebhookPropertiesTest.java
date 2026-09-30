@@ -2,7 +2,6 @@ package com.nms.common.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.context.ConfigurationPropertiesAutoConfiguration;
@@ -10,7 +9,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 
-class DedupPropertiesTest {
+class WebhookPropertiesTest {
+
+    private static final String SECRET = "test-signing-secret-5f1c";
 
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(NmsProperties.class)
@@ -30,24 +31,38 @@ class DedupPropertiesTest {
                     "nms.worker.enabled=false", "nms.worker.concurrency=1", "nms.worker.batch-size=1",
                     "nms.worker.poll-interval=1s", "nms.worker.lease-duration=60s",
                     "nms.worker.provider-timeout=10s", "nms.worker.shutdown-timeout=1s",
-                    "nms.dedup.enabled=true", "nms.webhook.enabled=false");
+                    "nms.dedup.enabled=true", "nms.dedup.window=24h");
 
     @Test
-    void positiveWindowIsAccepted() {
-        runner.withPropertyValues("nms.dedup.window=24h").run(ctx -> {
+    void signingSecretRequiredWhenEnabled() {
+        for (String secret : new String[] {"", "   "}) {
+            runner.withPropertyValues("nms.webhook.enabled=true", "nms.webhook.signing-secret=" + secret).run(ctx -> {
+                assertThat(ctx).hasFailed();
+                assertThat(ctx.getStartupFailure()).rootCause()
+                        .hasMessageContaining("nms.webhook.signing-secret must be set");
+            });
+        }
+        runner.withPropertyValues("nms.webhook.enabled=true").run(ctx -> assertThat(ctx).hasFailed());
+    }
+
+    @Test
+    void secretOnlyRequiredWhenEnabled() {
+        runner.withPropertyValues("nms.webhook.enabled=false").run(ctx -> {
             assertThat(ctx).hasNotFailed();
-            assertThat(ctx.getBean(NmsProperties.class).dedup().window()).isEqualTo(Duration.ofHours(24));
+            assertThat(ctx.getBean(NmsProperties.class).webhook().allowPrivateHosts()).isFalse();
+        });
+        runner.withPropertyValues("nms.webhook.enabled=true", "nms.webhook.signing-secret=" + SECRET).run(ctx -> {
+            assertThat(ctx).hasNotFailed();
+            assertThat(ctx.getBean(NmsProperties.class).webhook().signingSecret()).isEqualTo(SECRET);
         });
     }
 
     @Test
-    void zeroOrNegativeWindowFailsStartupWithClearMessage() {
-        for (String window : new String[] {"0s", "-1h"}) {
-            runner.withPropertyValues("nms.dedup.window=" + window).run(ctx -> {
-                assertThat(ctx).hasFailed();
-                assertThat(ctx.getStartupFailure()).rootCause()
-                        .hasMessageContaining("nms.dedup.window must be a positive duration");
-            });
-        }
+    void toStringNeverContainsTheSecret() {
+        runner.withPropertyValues("nms.webhook.enabled=true", "nms.webhook.signing-secret=" + SECRET).run(ctx -> {
+            NmsProperties properties = ctx.getBean(NmsProperties.class);
+            assertThat(properties.webhook().toString()).doesNotContain(SECRET).contains("signingSecret=***");
+            assertThat(properties.toString()).doesNotContain(SECRET);
+        });
     }
 }

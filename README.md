@@ -4,7 +4,7 @@ Accepts notification requests from source systems, routes them to channels (EMAI
 delivers them asynchronously with bounded retries, and exposes status and audit history.
 
 Stack: Java 21, Spring Boot 3.5, Maven, PostgreSQL 16, Flyway, Docker Compose.
-Tests: JUnit 5, MockMvc, Testcontainers.
+Tests: JUnit 5, MockMvc, Testcontainers, WireMock.
 
 ## Setup
 
@@ -119,9 +119,10 @@ Channels are decided per recipient at submission time, by these rules in order:
    channels if none were requested (`TYPE_DEFAULT`).
 2. Add the severity's escalation channels (`SEVERITY_ESCALATION`). A channel already present keeps
    its original reason.
-3. Remove channels the recipient opted out of (`RECIPIENT_OPT_OUT`).
-4. Remove channels the recipient has no address for (`NO_ADDRESS`).
-5. If nothing is left, add the fallback channel if the recipient has an address for it and has not
+3. Remove disabled channels (`CHANNEL_DISABLED`): `WEBHOOK` while `nms.webhook.enabled` is false.
+4. Remove channels the recipient opted out of (`RECIPIENT_OPT_OUT`).
+5. Remove channels the recipient has no address for (`NO_ADDRESS`).
+6. If nothing is left, add the fallback channel if the recipient has an address for it and has not
    opted out of it (`FALLBACK`).
 
 One delivery is created per remaining (recipient, channel). A recipient left with nothing is
@@ -133,6 +134,9 @@ Every decision is audited as one `ROUTING_DECIDED` event per recipient, listing 
 channels, what each rule added, and what each rule removed (a channel added then removed appears
 only under removed).
 
+`WEBHOOK` is only used when a request lists it in `channels`: it is never a type default, an
+escalation channel, or the fallback (see [Webhook channel](#webhook-channel)).
+
 Severity drives routing (which channels); priority drives processing order (which deliveries are
 claimed first). They are independent.
 
@@ -143,6 +147,8 @@ Configuration (`nms.routing` in `application.yml`):
 | `default-channels` | `TRANSACTIONAL: [EMAIL]`, `ALERT: [EMAIL, PUSH]`, `SECURITY: [EMAIL, SMS]`, `MARKETING: [EMAIL]` |
 | `severity-escalation` | `CRITICAL: [SMS]` |
 | `fallback-channel` | `EMAIL` |
+
+The service refuses to start if any of these settings contains `WEBHOOK`.
 
 ## Submitting and idempotency
 

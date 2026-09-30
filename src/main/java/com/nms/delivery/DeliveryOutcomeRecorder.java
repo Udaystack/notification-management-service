@@ -90,7 +90,8 @@ class DeliveryOutcomeRecorder {
             }
             case RetryDecision.Fail fail -> {
                 if (update(claim, DeliveryStatus.FAILED, failureClass, null, now)) {
-                    String reason = fail.exhausted() ? RETRIES_EXHAUSTED : failureClass.name();
+                    String reason = fail.exhausted() ? RETRIES_EXHAUSTED
+                            : failure.reasonCode() != null ? failure.reasonCode() : failureClass.name();
                     audit.record(claim.notificationId(), claim.id(), claim.sourceSystem(),
                             AuditEventType.DELIVERY_FAILED, reason, details.build());
                     metrics.failed(claim.channel(), failureClass);

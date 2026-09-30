@@ -11,24 +11,36 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Ordered routing rules (see the channel-routing spec): requested or type-default channels, severity escalation,
- * opt-out removal, missing-address removal, then fallback if nothing is left.
+ * disabled-channel removal, opt-out removal, missing-address removal, then fallback if nothing is left.
  */
 public final class RoutingPolicy {
 
     private final Map<NotificationType, List<Channel>> defaultChannels;
     private final Map<Severity, List<Channel>> severityEscalation;
     private final Channel fallbackChannel;
+    private final Set<Channel> disabledChannels;
 
     public RoutingPolicy(
             Map<NotificationType, List<Channel>> defaultChannels,
             Map<Severity, List<Channel>> severityEscalation,
             Channel fallbackChannel) {
+        this(defaultChannels, severityEscalation, fallbackChannel, Set.of());
+    }
+
+    /** @param disabledChannels channels removed with {@code CHANNEL_DISABLED} before any other removal rule */
+    public RoutingPolicy(
+            Map<NotificationType, List<Channel>> defaultChannels,
+            Map<Severity, List<Channel>> severityEscalation,
+            Channel fallbackChannel,
+            Set<Channel> disabledChannels) {
         this.defaultChannels = Map.copyOf(defaultChannels);
         this.severityEscalation = Map.copyOf(severityEscalation);
         this.fallbackChannel = fallbackChannel;
+        this.disabledChannels = Set.copyOf(disabledChannels);
     }
 
     /**
@@ -55,6 +67,12 @@ public final class RoutingPolicy {
                 .forEach(c -> candidates.putIfAbsent(c, RoutingReason.SEVERITY_ESCALATION));
 
         Map<Channel, RoutingReason> removed = new EnumMap<>(Channel.class);
+        for (Channel channel : List.copyOf(candidates.keySet())) {
+            if (disabledChannels.contains(channel)) {
+                candidates.remove(channel);
+                removed.put(channel, RoutingReason.CHANNEL_DISABLED);
+            }
+        }
         for (Channel channel : List.copyOf(candidates.keySet())) {
             Optional<ChannelPreference> pref = preferences.channel(channel);
             if (pref.isPresent() && pref.get().optedOut()) {

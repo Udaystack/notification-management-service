@@ -1,6 +1,9 @@
 package com.nms.common;
 
 import com.nms.common.domain.Channel;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Locale;
 
 /** The single place where contact addresses are masked for responses, logs, and audit. */
 public final class AddressMasker {
@@ -18,6 +21,7 @@ public final class AddressMasker {
             case EMAIL -> maskEmail(address);
             case SMS -> maskPhone(address);
             case PUSH -> maskToken(address);
+            case WEBHOOK -> maskUrl(address);
         };
     }
 
@@ -35,6 +39,19 @@ public final class AddressMasker {
             return MASK;
         }
         return "***-***-" + digits.substring(digits.length() - 4);
+    }
+
+    /** Scheme and host only: user info, port, path, query, and fragment can carry credentials or tokens. */
+    private static String maskUrl(String address) {
+        try {
+            URI uri = new URI(address.trim());
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return MASK;
+            }
+            return uri.getScheme().toLowerCase(Locale.ROOT) + "://" + uri.getHost().toLowerCase(Locale.ROOT) + "/" + MASK;
+        } catch (URISyntaxException e) {
+            return MASK;
+        }
     }
 
     private static String maskToken(String address) {

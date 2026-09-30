@@ -3,6 +3,7 @@ package com.nms.routing;
 import static com.nms.common.domain.Channel.EMAIL;
 import static com.nms.common.domain.Channel.PUSH;
 import static com.nms.common.domain.Channel.SMS;
+import static com.nms.common.domain.Channel.WEBHOOK;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nms.common.domain.Channel;
@@ -13,6 +14,7 @@ import com.nms.recipient.RecipientPreferences;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class RoutingPolicyTest {
@@ -88,6 +90,37 @@ class RoutingPolicyTest {
 
         assertThat(d.selected()).isEmpty();
         assertThat(d.outcome()).isEqualTo(RoutingReason.UNKNOWN_RECIPIENT);
+    }
+
+    @Test
+    void webhookRoutedWhenRequested() {
+        RoutingDecision d = policy.route("r", List.of(WEBHOOK), NotificationType.ALERT, Severity.MEDIUM,
+                prefs(EMAIL, "a@example.com", false, WEBHOOK, "https://hooks.example.com/r", false));
+
+        assertThat(d.selected()).containsExactly(WEBHOOK);
+        assertThat(d.added()).containsExactly(Map.entry(WEBHOOK, RoutingReason.REQUESTED));
+    }
+
+    @Test
+    void webhookNeverAddedByDefaults() {
+        RoutingDecision d = policy.route("r", List.of(), NotificationType.ALERT, Severity.CRITICAL,
+                prefs(EMAIL, "a@example.com", false, SMS, "+1-555-000-0000", false,
+                        WEBHOOK, "https://hooks.example.com/r", false));
+
+        assertThat(d.selected()).containsExactly(EMAIL, SMS).doesNotContain(WEBHOOK);
+    }
+
+    @Test
+    void disabledWebhookFallsBack() {
+        RoutingPolicy webhookOff = new RoutingPolicy(Map.of(), Map.of(Severity.CRITICAL, List.of(SMS)), EMAIL,
+                Set.of(WEBHOOK));
+
+        RoutingDecision d = webhookOff.route("r", List.of(WEBHOOK), NotificationType.ALERT, Severity.MEDIUM,
+                prefs(EMAIL, "a@example.com", false, WEBHOOK, "https://hooks.example.com/r", false));
+
+        assertThat(d.selected()).containsExactly(EMAIL);
+        assertThat(d.added()).containsExactly(Map.entry(EMAIL, RoutingReason.FALLBACK));
+        assertThat(d.removed()).containsExactly(Map.entry(WEBHOOK, RoutingReason.CHANNEL_DISABLED));
     }
 
     private static RecipientPreferences prefs(Object... triples) {

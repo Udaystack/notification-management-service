@@ -49,3 +49,7 @@ nms:
   dedup:
     enabled: true
     window: 24h
+  webhook:
+    enabled: false
+    signing-secret: ${NMS_WEBHOOK_SIGNING_SECRET:}
+    allow-private-hosts: false

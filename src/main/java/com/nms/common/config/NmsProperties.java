@@ -21,7 +21,8 @@ public record NmsProperties(
         @Valid @NotNull Idempotency idempotency,
         @Valid @NotNull Retry retry,
         @Valid @NotNull Worker worker,
-        @Valid @NotNull Dedup dedup) {
+        @Valid @NotNull Dedup dedup,
+        @Valid @NotNull Webhook webhook) {
 
     public record Intake(@Min(1) int maxRecipients) {}
 
@@ -54,6 +55,27 @@ public record NmsProperties(
             if (window != null && (window.isZero() || window.isNegative())) {
                 throw new IllegalArgumentException("nms.dedup.window must be a positive duration, but was " + window);
             }
+        }
+    }
+
+    /**
+     * The {@code WEBHOOK} channel.
+     *
+     * @param signingSecret HMAC key for request signatures; required when enabled, never printed
+     * @param allowPrivateHosts also allow {@code http} and non-public addresses (local development and tests only)
+     */
+    public record Webhook(boolean enabled, String signingSecret, boolean allowPrivateHosts) {
+
+        public Webhook {
+            if (enabled && (signingSecret == null || signingSecret.isBlank())) {
+                throw new IllegalArgumentException(
+                        "nms.webhook.signing-secret must be set when nms.webhook.enabled is true");
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "Webhook[enabled=" + enabled + ", signingSecret=***, allowPrivateHosts=" + allowPrivateHosts + "]";
         }
     }
 }
