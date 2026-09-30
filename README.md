@@ -45,9 +45,3 @@ scripts/demo.sh                            # end-to-end walkthrough against the 
   `FOR UPDATE SKIP LOCKED`), Flyway. Provider calls happen outside transactions, delivery is
   at-least-once with idempotency keys, overall status is derived from the deliveries, and audit
   history is append-only.
-- **How it was built:** Claude Code with OpenSpec. Every change runs the same loop: clarify with the
-  user → propose (proposal, delta specs, design, tasks) → apply task by task with tests → validate
-  (full suite, flag-off profiles, scenario coverage, `openspec validate --strict`, demo) → grouped
-  commits, each passing on its own → archive into `openspec/specs/`.
-- **Scenarios:** see the table above; each branch README describes its scenarios as
-  decomposition, execution, and validation.
