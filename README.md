@@ -1,6 +1,6 @@
 # Notification Management Service (NMS)
 
-Accepts notification requests from source systems, routes them to channels (EMAIL, SMS, PUSH),
+Accepts notification requests from source systems, routes them to channels (EMAIL, SMS, PUSH, WEBHOOK),
 delivers them asynchronously with bounded retries, and exposes status and audit history.
 
 Stack: Java 21, Spring Boot 3.5, Maven, PostgreSQL 16, Flyway, Docker Compose.
@@ -234,7 +234,7 @@ Plan.
 `GET /api/v1/notifications/{id}` returns the notification's `eventId`, `type`, `severity`,
 `priority`, overall `status` (see [State model](#state-model)), `selectedChannels`, `createdAt`,
 `scheduledAt`, `expiresAt`, and one entry per delivery: `id`, `recipientId`, `channel`, `address`
-(masked, e.g. `j***@example.com`), `status`, `attemptCount`, `lastFailureClass`, `suppressedBy`,
+(masked, e.g. `j***@example.com`, or `https://hooks.example.com/***` for a webhook URL), `status`, `attemptCount`, `lastFailureClass`, `suppressedBy`,
 `lastAttemptAt`, `nextAttemptAt`, and `completedAt`. Subject and body are never returned.
 
 `suppressedBy` is `{notificationId, deliveryId}` of the original delivery for a `SUPPRESSED`
@@ -325,6 +325,76 @@ Seeded recipients `cust-2001` … `cust-2007` have the email addresses `user+tra
 `user+timeout@…`, `user+ratelimit@…`, `user+reject@…`, `user+invalid@…`, `user+auth@…`, and
 `user+flaky@…`.
 
+## Webhook channel
+
+`WEBHOOK` delivers to systems rather than people: the service sends a signed HTTP `POST` to the
+recipient's webhook URL, stored as its `WEBHOOK` address (seeded like every other address; opt-out
+works the same way). It is the only real outbound provider; the others are simulated.
+
+**Turning it on.** Off by default. To enable it:
+
+| Setting (`nms.webhook`) | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | While off, routing removes `WEBHOOK` with `CHANNEL_DISABLED` (the fallback still applies), and a webhook delivery that is already queued fails without any request: `FAILED`, failure class `PERMANENT_REJECTION`, `DELIVERY_FAILED` reason `CHANNEL_DISABLED`. |
+| `signing-secret` | `${NMS_WEBHOOK_SIGNING_SECRET:}` | HMAC key. Required when `enabled` is true (startup fails otherwise). Never logged, audited, or returned. |
+| `allow-private-hosts` | `false` | Also allow `http` and non-public addresses. For local development and tests only. |
+
+**Request.** One `POST` per attempt, `Content-Type: application/json`:
+
+```json
+{
+  "notificationId": "…", "deliveryId": "…", "eventId": "INV-42", "sourceSystem": "billing",
+  "type": "TRANSACTIONAL", "severity": "MEDIUM", "priority": "NORMAL", "recipientId": "cust-3001",
+  "subject": "Invoice ready", "body": "Your invoice INV-42 is ready.",
+  "attempt": 1, "sentAt": "2026-09-29T10:00:00.123456Z"
+}
+```
+
+| Header | Value |
+|---|---|
+| `Idempotency-Key` | The delivery ID; the same on every attempt, so receivers can drop repeats |
+| `X-NMS-Timestamp` | Send time in Unix seconds (the same instant as `sentAt`) |
+| `X-NMS-Signature` | `sha256=` + lowercase hex HMAC-SHA256 of `<X-NMS-Timestamp>.<raw body>` with the signing secret |
+
+To verify, recompute the HMAC over the raw bytes of the body (before parsing it), compare in
+constant time, and reject stale timestamps to prevent replays. In Python:
+
+```python
+expected = "sha256=" + hmac.new(secret, f"{timestamp}.".encode() + raw_body, hashlib.sha256).hexdigest()
+ok = hmac.compare_digest(expected, request.headers["X-NMS-Signature"])
+```
+
+**Target policy (SSRF protection).** Right before each call the URL must be `https`, and every
+address its host resolves to must be public: not loopback (including `0.0.0.0`/`::`), private
+(including IPv6 `fc00::/7`), link-local, or multicast. A URL that breaks this rule or cannot be parsed
+fails as `INVALID_RECIPIENT` without a request. Redirects are never followed. `allow-private-hosts`
+lifts the scheme and address rules.
+
+**Outcomes.** Each call is bounded by `nms.worker.provider-timeout`; response bodies are never read.
+
+| Outcome | Failure class | Result |
+|---|---|---|
+| `2xx` | — | `SENT` |
+| Connection error, unresolvable host, `5xx` | `TRANSIENT` | retried |
+| No response within the provider timeout | `TIMEOUT` | retried |
+| `429` | `RATE_LIMITED` | retried, not before `Retry-After` (seconds or HTTP date) |
+| `401`, `403` | `AUTH_ERROR` | `FAILED`, plus an ERROR log |
+| `404`, `410` | `INVALID_RECIPIENT` | `FAILED` |
+| Other `4xx`, any `3xx` | `PERMANENT_REJECTION` | `FAILED` |
+
+**Masking.** Webhook URLs show only scheme and host (`https://hooks.example.com/***`) in the status
+API, logs, and audit; user info, port, path, and query (which often hold tokens) are never shown.
+
+**Contract change (additive).** `WEBHOOK` can appear as a channel in requests, `selectedChannels`,
+deliveries, and audit, and `CHANNEL_DISABLED` as a routing reason. Clients that switch exhaustively
+on channel values must handle `WEBHOOK`.
+
+**Rollback.** To stop webhooks, restart with `nms.webhook.enabled=false`; queued webhook deliveries
+then fail with `CHANNEL_DISABLED` and nothing more is sent. Do not roll back to a version without
+webhook support: the V4 migration seeds a `WEBHOOK` address (`cust-3001`) right away, and older code
+cannot read `WEBHOOK` rows (requests naming that recipient fail with `500`, and a queued webhook
+delivery stalls the claim of its batch). See design, Migration Plan.
+
 ## Demo
 
 `scripts/demo.sh` walks through the happy path, idempotent replay, conflict, a retry (`+flaky`),
@@ -394,8 +464,13 @@ throughput is bounded by `concurrency` and per-delivery time instead of `batch-s
 - **Event deduplication is by event ID only.** The same content under a different `eventId`, and
   the same event from different source systems, are not deduplicated; deliveries already queued are
   never suppressed retroactively.
-- **Simulated providers.** No real latency or error shapes; failure-injection markers cover every
-  failure class.
+- **Simulated providers.** EMAIL, SMS, and PUSH have no real latency or error shapes;
+  failure-injection markers cover every failure class. `WEBHOOK` is real.
+- **Webhook DNS rebinding.** The target policy checks the resolved addresses right before each call,
+  but the HTTP client resolves the host again when it connects, so a hostile DNS server could switch
+  to a private address in between. Fixing this needs connections pinned to the checked address.
+- **One webhook signing secret.** Shared by all receivers; per-recipient secrets and rotation are
+  future work.
 - **Audit growth.** `audit_event` is append-only and unpartitioned; partitioning and archival are
   future work. Rejection audits without a notification ID are not visible through the audit API.
 - **Authentication.** Static per-source-system API keys (hashed); OAuth2 client credentials is the

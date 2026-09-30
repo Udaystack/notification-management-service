@@ -76,7 +76,9 @@ public class DeliveryWorker {
             return;
         }
         DeliveryRequest request = new DeliveryRequest(claim.id(), claim.channel(), address.get(), claim.subject(),
-                claim.body(), claim.attempt());
+                claim.body(), claim.attempt(), new DeliveryRequest.NotificationInfo(claim.notificationId(),
+                        claim.eventId(), claim.sourceSystem(), claim.type(), claim.severity(), claim.priority(),
+                        claim.recipientId()));
         outcomes.record(claim, call(providers.forChannel(claim.channel()), request), address.get());
     }
 
