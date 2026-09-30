@@ -6,6 +6,168 @@ delivers them asynchronously with bounded retries, and exposes status and audit 
 Stack: Java 21, Spring Boot 3.5, Maven, PostgreSQL 16, Flyway, Docker Compose.
 Tests: JUnit 5, MockMvc, Testcontainers, WireMock.
 
+## Deliverables
+
+| Deliverable | Where |
+|---|---|
+| Working prototype (runnable end-to-end) | [Setup](#setup), then [Demo](#demo) (`scripts/demo.sh` drives every feature against a running instance) and [Load test](#load-test) |
+| Architecture overview | [Architecture overview](#architecture-overview): the service (components, control flow, key decisions) and how it was built (tools, execution approach) |
+| Three scenarios: greenfield, brownfield, ambiguous | [Scenarios](#scenarios): decomposition, execution, and validation of each. One branch per scenario: [`greenfield`](https://github.com/Udaystack/notification-management-service/tree/greenfield) → [`brownfield`](https://github.com/Udaystack/notification-management-service/tree/brownfield) → [`ambiguous-requirements`](https://github.com/Udaystack/notification-management-service/tree/ambiguous-requirements); each builds on the previous one |
+| Setup instructions | [Setup](#setup) |
+| Testing approach, limitations, and trade-offs | [Tests](#tests) and [Limitations and trade-offs](#limitations-and-trade-offs) |
+
+This README describes the **`ambiguous-requirements`** branch. It contains all three scenarios.
+
+## Architecture overview
+
+### Service
+
+| Component (package) | Responsibility |
+|---|---|
+| `api` | REST endpoints (`POST /api/v1/notifications`, `GET …/{id}`, `GET …/{id}/audit`), Problem Details errors, OpenAPI |
+| `security` | `X-API-Key` filter: maps each key to one source system; reads are scoped to it |
+| `intake` | Request validation, idempotency, and the intake pipeline: ordered steps in one transaction |
+| `routing`, `recipient` | Routing policy (requested/default channels, escalation, opt-out, missing address, fallback) and recipient preferences |
+| `dedup` | Duplicate-event lookup and transaction-scoped advisory locks |
+| `delivery` | PostgreSQL queue (claim with `FOR UPDATE SKIP LOCKED`, priority aging), poller, worker, outcome recorder, state machine, derived status, metrics |
+| `channel` | Provider port; simulated EMAIL/SMS/PUSH providers with failure injection; real signed `WEBHOOK` provider with SSRF guard |
+| `retry` | Exponential backoff with full jitter, retry-after, expiry |
+| `audit` | Append-only audit history; details builder that cannot hold content or raw addresses |
+| `common` | Settings (`nms.*`), domain enums, address masking, correlation IDs |
+| `db/migration` | Flyway: V1 schema, V2 seed data, V3 deduplication, V4 webhook channel |
+
+**Control flow.**
+
+1. **Submit:** the API key identifies the source system. The service validates the body, then
+   checks the `Idempotency-Key`: a replay returns `200`, a conflicting body `409`. Then one
+   transaction runs the intake steps:
+   persist notification → route recipients → deduplicate events → create deliveries → audit.
+   The client gets `202` without waiting for any provider.
+2. **Deliver:** a poller hands free worker slots to the queue. A claim transaction selects due
+   rows with `FOR UPDATE SKIP LOCKED`, in
+   effective-priority order (with aging), marks them
+   `IN_FLIGHT` under a lease, and audits the attempt.
+3. **Send:** the provider is called outside any transaction, bounded by a timeout.
+4. **Record:** a second transaction applies the outcome only if the row is still the claimed version.
+   The delivery becomes `SENT`, `RETRY_SCHEDULED` (backoff), `FAILED`, or `EXPIRED`. The same
+   transaction recomputes the notification's derived status and writes the audit event.
+5. **Read:** status and audit endpoints read the stored state, scoped to the caller's source system,
+   with addresses masked.
+
+**Key decisions** (full rationale in each change's `design.md`):
+
+- **PostgreSQL is the queue (no broker):** enqueueing is atomic with acceptance; `SKIP LOCKED` plus
+  leases give safe concurrency across instances. The `DeliveryQueue` port is the exit path to
+  Kafka or SQS.
+- **Provider calls happen outside transactions,** and outcomes are version-checked: at-least-once
+  delivery, with the delivery ID as the provider idempotency key.
+- **Idempotency relies on a unique constraint,** not check-then-insert; replays compare a canonical
+  request hash.
+- **Overall status is derived from the deliveries,** and an explicit state machine rejects invalid
+  transitions.
+- **Failure classification lives in the provider adapters.** Only `TRANSIENT`, `TIMEOUT`, and
+  `RATE_LIMITED` are retried.
+- **Audit is append-only and written in the same transaction as the change it records;** content
+  and raw addresses can't be written to it.
+- **Deduplication (brownfield):** a transaction-scoped advisory lock per
+  `(sourceSystem, eventId, recipient, channel)` makes concurrent duplicates race-safe. `SUPPRESSED`
+  is a creation-only terminal state. It sits behind the `nms.dedup.enabled` flag.
+- **Webhook (brownfield):** a real HTTP adapter behind the same port. Requests are HMAC-signed,
+  limited to `https` and public addresses, and never follow redirects. The channel is off by default
+  (`nms.webhook.enabled`).
+- **Priority (ambiguous):** aging inside the claim SQL, so the order holds across instances; the
+  stored priority is never changed; `nms.worker.priority-aging=0` restores strict order.
+
+### How it was built
+
+| Tool | Role |
+|---|---|
+| Claude Code | AI coding agent: reads the code, asks clarifying questions, writes specs and code, runs builds, tests, and git |
+| OpenSpec | Spec-driven change workflow: each change is a proposal, delta specs (requirements with scenarios), a design, and tasks; `openspec validate --strict`; archiving merges the deltas into `openspec/specs/` |
+| Maven, JUnit 5, MockMvc, Testcontainers, WireMock | Build and tests against a real PostgreSQL 16 and a stub HTTP server |
+| Docker Compose, `scripts/demo.sh`, k6 | Local database, end-to-end demo, load test |
+| Git, GitHub | One branch per scenario; grouped, reviewable commits |
+
+**Execution approach:** the same loop for every change.
+
+1. **Clarify:** read the existing specs and code, list every gap or ambiguity, and ask the user
+   (batched questions, options with a recommendation, terms explained first) instead of assuming.
+2. **Propose** (`/opsx:propose`): proposal → delta specs → design → tasks. Each task names the test
+   that proves it.
+3. **Apply** (`/opsx:apply`): implement task by task and tick each box only when its test passes.
+   Pause and ask whenever the work reveals a gap in the plan.
+4. **Validate:** write characterization tests before changing behavior; run the full suite at each
+   checkpoint (and with the feature flags off); check that scenario coverage maps every spec
+   scenario to a test named after it; run `openspec validate --strict` and the demo end to end.
+5. **Commit:** group the work into commits that follow the design's safe change plan, and run the
+   full suite on every commit on its own.
+6. **Archive** (`/opsx:archive`): merge the delta specs into `openspec/specs/`, which remains the
+   current source of truth.
+
+## Scenarios
+
+Each scenario is one or more OpenSpec changes, shown as **decomposition** (how the request became specs and tasks), **execution** (how it was built), and **validation** (how it was proven).
+
+### 1. Greenfield: build the service from a written brief
+
+Branch: `greenfield`. OpenSpec change: `add-notification-core` (archived in `openspec/changes/archive/2026-09-29-add-notification-core/`).
+
+- **Decomposition:** the brief became 6 capabilities (submission, status, routing, idempotency,
+  delivery processing, audit) with 47 scenarios, a design with 13 decisions (D1–D10), and 48 tasks
+  in 10 groups: skeleton, domain, security, audit, routing, submission, delivery, read APIs,
+  operability, integration checks. The first draft filled gaps in the brief with assumptions (for
+  example how long idempotency keys are kept, and auditing of rejected requests). The user asked to
+  be consulted instead, and "ask, don't assume" became the rule for all later work.
+- **Execution:** 14 commits, one per layer (schema → domain → security → audit → routing →
+  channels → intake → API → delivery → observability → end-to-end tests → docs → demo and load
+  test).
+- **Validation:** 117 tests (53 unit, 64 integration against PostgreSQL). Every one of the 47
+  scenarios maps to a test named after it (`docs/scenario-coverage.md`). `scripts/demo.sh` exercises
+  it end to end, and a k6 load test measured about 115 deliveries/s sustained with no backlog.
+
+### 2. Brownfield: change a running system without breaking it
+
+Branch: `brownfield`. Two changes, on top of the greenfield service and its specs:
+
+| | `add-event-deduplication` | `add-webhook-channel` |
+|---|---|---|
+| Goal | Suppress the same event sent again with a new idempotency key | Add a real outbound channel: signed HTTP webhooks |
+| Decomposition | 3 delta specs (1 new capability), 20 scenarios, 8 design decisions, 25 tasks | 3 delta specs (1 new capability), 27 scenarios, 12 design decisions, 21 tasks, after 17 clarifying questions (provider, SSRF policy, status mapping, flag behavior, …) |
+| Safety | Flag `nms.dedup.enabled`; Flyway V3 is additive only; rollback rule documented | Flag `nms.webhook.enabled` (off by default); Flyway V4; rollback rule documented |
+| Commits | 9, plus archive | 7, plus archive |
+
+- **Execution:** both changes followed a safe change plan. First, characterization tests pinned
+  current behavior, including a test showing the duplicate-delivery bug. Then the migration landed
+  alone with the full suite green. Behavior changed only behind a feature flag, and docs and demo
+  came last. When Docker failed mid-change, the work was paused with a handoff note and resumed
+  later.
+- **Validation:** 194 tests, green with the flags at their defaults and with `-Pdedup-off`. A
+  mutation check removed the advisory lock and saw the concurrency test fail 3 out of 3 runs.
+  Webhook behavior is tested against a WireMock stub, with the HMAC checked against `openssl`. The
+  demo ran end to end, `openspec validate --strict` passed, every commit's suite passed on its own,
+  and both changes were archived into the main specs.
+
+### 3. Ambiguous: settle underspecified behavior before building it
+
+Branch: `ambiguous-requirements`. OpenSpec change: `clarify-delivery-priority`.
+
+- **Starting point:** a question ("what does priority do?") exposed five gaps in the specs: lower
+  priorities can starve under `HIGH` load; retries vs new work was never stated; deliveries can
+  expire unnoticed while waiting; there is no latency target; and it was unclear whether priority
+  is required.
+- **Decomposition:** each gap became a decision, with options and a recommendation. Terms were
+  explained before choosing (for example what "queue wait" measures). Follow-up questions settled
+  the details: aging interval, when a retry starts aging, an off switch, and one edge case found in
+  the code (reclaimed leases). The result: 2 delta specs, 14 scenarios, 5 design decisions, 12
+  tasks.
+- **Execution:** characterization of today's claim order → config → aging in the claim SQL →
+  observability (`nms.deliveries.queue-wait`, expiry tags, WARN) → docs; 7 commits plus archive.
+  Midway, a tooling gap (a `-D` flag doesn't reach Failsafe) was surfaced to the user instead of
+  worked around, which led to an `aging-off` profile.
+- **Validation:** 208 tests, green in all three modes (default, `-Pdedup-off`, `-Paging-off`). The
+  characterization test changed in exactly the one intended place (reclaim order). Every commit
+  passes on its own, strict validation passed, and the change was archived into the main specs.
+
 ## Setup
 
 Prerequisites: JDK 21, Maven 3.9+, Docker (with Compose).
@@ -40,6 +202,23 @@ throwaway PostgreSQL 16 Testcontainer, so Docker must be running. The local Comp
 not used by tests.
 
 Every spec scenario has a test named after it; see [docs/scenario-coverage.md](docs/scenario-coverage.md).
+
+**Testing approach.**
+
+- **Unit tests** cover the pure domain: the state machine, status derivation, routing policy, retry
+  policy, masking, validation, the webhook target policy and signing.
+- **Integration tests** boot the whole application against a real PostgreSQL 16 (Testcontainers)
+  and drive it through the HTTP API (MockMvc) or the worker. They cover real SQL: `SKIP LOCKED`
+  races, constraints, and migrations.
+- **Stub HTTP server:** the webhook provider is tested against WireMock, covering every
+  status-code mapping, timeouts, redirects, and signatures.
+- **Characterization tests first:** before any behavior change, tests pin the current behavior, so
+  every difference afterwards is a reviewed, intended diff.
+- **Flag profiles:** `-Pdedup-off` and `-Paging-off` run the whole suite with a
+  feature switched off, to prove the old behavior still holds.
+- **Traceability:** every spec scenario has a test named after it
+  (`docs/scenario-coverage.md`).
+- **End to end and load:** `scripts/demo.sh` against a running instance, and the k6 load test.
 
 ## Stopping
 
@@ -512,3 +691,12 @@ throughput is bounded by `concurrency` and per-delivery time instead of `batch-s
   production path.
 - **Spring Boot 3.5.** Its open-source support has ended; moving to Spring Boot 4.x is future work.
 - **Load test.** Single run on a laptop; numbers are indicative, not a capacity guarantee.
+
+**Process trade-offs.**
+
+- **Asking before building** costs round-trips, but the specs record decisions the user actually
+  made, not guesses.
+- **Characterization tests and per-commit full-suite runs** make each change slower to land, but
+  every commit is green on its own and every behavior change is an explicit diff.
+- **AI-written code** is trusted only through tests, scenario coverage, and strict spec validation,
+  not by inspection alone.
