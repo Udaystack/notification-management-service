@@ -73,32 +73,16 @@ This README describes the **`greenfield`** branch. Later scenarios live on later
 
 | Tool | Role |
 |---|---|
-| Claude Code | AI coding agent: reads the code, asks clarifying questions, writes specs and code, runs builds, tests, and git |
-| OpenSpec | Spec-driven change workflow: each change is a proposal, delta specs (requirements with scenarios), a design, and tasks; `openspec validate --strict`; archiving merges the deltas into `openspec/specs/` |
 | Maven, JUnit 5, MockMvc, Testcontainers | Build and tests against a real PostgreSQL 16 |
 | Docker Compose, `scripts/demo.sh`, k6 | Local database, end-to-end demo, load test |
 | Git, GitHub | One branch per scenario; grouped, reviewable commits |
 
-**Execution approach:** the same loop for every change.
-
-1. **Clarify:** read the existing specs and code, list every gap or ambiguity, and ask the user
-   (batched questions, options with a recommendation, terms explained first) instead of assuming.
-2. **Propose** (`/opsx:propose`): proposal → delta specs → design → tasks. Each task names the test
-   that proves it.
-3. **Apply** (`/opsx:apply`): implement task by task and tick each box only when its test passes.
-   Pause and ask whenever the work reveals a gap in the plan.
-4. **Validate:** run the full suite (unit tests plus integration tests against a real
-   PostgreSQL) and check that scenario coverage maps every spec scenario to a test named after it.
-5. **Commit:** one commit per layer.
-6. **Archive** (`/opsx:archive`): merge the change's specs into `openspec/specs/`. For this change
-   that happened at the start of the `brownfield` branch.
 
 The brownfield changes added characterization tests before any behavior change, feature-flag
 profiles, and a full-suite run on every commit on its own (see the `brownfield` branch README).
 
 ## Scenarios
 
-Each scenario is one or more OpenSpec changes, shown as **decomposition** (how the request became specs and tasks), **execution** (how it was built), and **validation** (how it was proven).
 
 ### 1. Greenfield: build the service from a written brief
 
