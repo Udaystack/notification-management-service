@@ -13,6 +13,8 @@ Every scenario in `openspec/specs/` has at least one test named after it
 | Audit owned by another source system | `ReadApiIT.auditOwnedByAnotherSourceSystem` |
 | Message content excluded | `LoggingIT.messageContentExcluded`, `SensitiveDataIT.messageContentExcluded` |
 | Address masked | `AddressMaskerTest.addressMasked`, `SensitiveDataIT.addressMasked` |
+| Webhook URL masked | `WebhookSensitiveDataIT.webhookUrlMasked` |
+| Signing secret never logged | `WebhookSensitiveDataIT.signingSecretNeverLogged` |
 
 ## channel-routing
 
@@ -23,8 +25,12 @@ Every scenario in `openspec/specs/` has at least one test named after it
 | Opt-out respected with fallback | `RoutingPolicyTest.optOutRespectedWithFallback` |
 | No deliverable channel for one recipient | `RoutingPolicyTest.noDeliverableChannelForOneRecipient` |
 | No deliverable recipient at all | `RoutingPolicyTest.noDeliverableRecipientAtAll`, `SubmissionIT.noDeliverableRecipientAtAll` |
+| Webhook routed when requested | `RoutingPolicyTest.webhookRoutedWhenRequested` |
+| Webhook never added by defaults | `RoutingPolicyTest.webhookNeverAddedByDefaults` |
+| Disabled webhook falls back | `RoutingPolicyTest.disabledWebhookFallsBack`, `WebhookDisabledIT.disabledWebhookFallsBack` |
 | Decision reasons recorded | `RoutingPolicyTest.decisionReasonsRecorded`, `SubmissionIT.decisionReasonsRecorded` |
-| Unknown recipient | `RoutingPolicyTest.unknownRecipient` |
+| Unknown recipient | `RoutingCharacterizationTest.unknownRecipient`, `RoutingPolicyTest.unknownRecipient` |
+| Webhook in routing configuration rejected | `RoutingConfigGuardTest.webhookInRoutingConfigurationRejected` |
 
 ## delivery-processing
 
@@ -97,3 +103,22 @@ Every scenario in `openspec/specs/` has at least one test named after it
 | Missing or invalid key | `ApiKeyAuthIT.missingOrInvalidKey` |
 | Source system mismatch | `ApiKeyAuthIT.sourceSystemMismatch` |
 | Future schedule | `SubmissionIT.futureSchedule` |
+
+## webhook-delivery
+
+| Scenario | Test |
+|---|---|
+| Signed webhook delivered | `WebhookDeliveryIT.signedWebhookDelivered` |
+| Plain http target rejected | `WebhookTargetPolicyTest.plainHttpTargetRejected` |
+| Private address target rejected | `WebhookTargetPolicyTest.privateAddressTargetRejected` |
+| Private hosts allowed for development | `WebhookTargetPolicyTest.privateHostsAllowedForDevelopment` |
+| Server error retried | `WebhookDeliveryIT.serverErrorRetried` |
+| Unreachable endpoint retried | `WebhookDeliveryIT.unreachableEndpointRetried` |
+| Slow endpoint times out | `WebhookDeliveryIT.slowEndpointTimesOut` |
+| Webhook rate limit honored | `WebhookDeliveryIT.webhookRateLimitHonored` |
+| Endpoint rejects credentials | `WebhookDeliveryIT.endpointRejectsCredentials` |
+| Endpoint gone | `WebhookDeliveryIT.endpointGone` |
+| Other client error not retried | `WebhookDeliveryIT.otherClientErrorNotRetried` |
+| Redirect not followed | `WebhookDeliveryIT.redirectNotFollowed` |
+| Signing secret required when enabled | `WebhookPropertiesTest.signingSecretRequiredWhenEnabled` |
+| Queued webhook delivery fails while disabled | `WebhookDisabledIT.queuedWebhookDeliveryFailsWhileDisabled` |
