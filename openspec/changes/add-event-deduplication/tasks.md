@@ -1,7 +1,5 @@
 # Tasks
 
-> Paused 2026-09-29 at 11/25 (Docker Desktop stopped responding). 4.3–4.5 are written but unverified. Resume from [HANDOFF.md](HANDOFF.md).
-
 ## 1. Safety net
 
 - [x] 1.1 Add characterization unit tests pinning every current `NotificationStatusDeriver` output (`ACCEPTED`, `IN_PROGRESS`, `COMPLETED`, `PARTIALLY_DELIVERED`, `FAILED`, `EXPIRED`) and the full current transition table of `DeliveryStateMachine`; verify they pass on the unchanged code
