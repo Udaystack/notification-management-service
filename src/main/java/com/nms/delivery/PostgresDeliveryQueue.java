@@ -8,12 +8,15 @@ import com.nms.common.domain.Channel;
 import com.nms.common.domain.DeliveryStatus;
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 class PostgresDeliveryQueue implements DeliveryQueue {
+
+    private static final Logger log = LoggerFactory.getLogger(PostgresDeliveryQueue.class);
 
     private final JdbcClient jdbc;
     private final AuditService audit;
@@ -48,7 +53,7 @@ class PostgresDeliveryQueue implements DeliveryQueue {
 
     private record Due(UUID id, UUID notificationId, String sourceSystem, String eventId, String type,
             String severity, String priority, String recipientId, Channel channel, DeliveryStatus status,
-            int attemptCount, String subject, String body, Instant expiresAt) {}
+            int attemptCount, Instant nextAttemptAt, String subject, String body, Instant expiresAt) {}
 
     @Override
     @Transactional
@@ -56,7 +61,8 @@ class PostgresDeliveryQueue implements DeliveryQueue {
         Instant now = clock.instant();
         List<Due> due = jdbc.sql("""
                 SELECT d.id, d.notification_id, n.source_system, n.event_id, n.type, n.severity, n.priority,
-                       d.recipient_id, d.channel, d.status, d.attempt_count, n.subject, n.body, n.expires_at
+                       d.recipient_id, d.channel, d.status, d.attempt_count, d.next_attempt_at, n.subject, n.body,
+                       n.expires_at
                 FROM delivery d JOIN notification n ON n.id = d.notification_id
                 WHERE (d.status IN ('PENDING', 'RETRY_SCHEDULED') AND d.next_attempt_at <= :now)
                    OR (d.status = 'IN_FLIGHT' AND d.locked_until < :now)
@@ -83,6 +89,7 @@ class PostgresDeliveryQueue implements DeliveryQueue {
                         Channel.valueOf(rs.getString("channel")),
                         DeliveryStatus.valueOf(rs.getString("status")),
                         rs.getInt("attempt_count"),
+                        rs.getTimestamp("next_attempt_at") == null ? null : rs.getTimestamp("next_attempt_at").toInstant(),
                         rs.getString("subject"),
                         rs.getString("body"),
                         rs.getTimestamp("expires_at") == null ? null : rs.getTimestamp("expires_at").toInstant()))
@@ -114,7 +121,12 @@ class PostgresDeliveryQueue implements DeliveryQueue {
                 .update();
         audit.record(d.notificationId(), d.id(), d.sourceSystem(), AuditEventType.DELIVERY_EXPIRED, null,
                 AuditDetails.create().recipientId(d.recipientId()).channel(d.channel()).build());
-        metrics.expired(d.channel());
+        boolean neverAttempted = d.attemptCount() == 0;
+        metrics.expired(d.channel(), d.priority(), neverAttempted);
+        if (neverAttempted) {
+            log.warn("Delivery {} of notification {} (priority {}) expired before any attempt",
+                    d.id(), d.notificationId(), d.priority());
+        }
     }
 
     private ClaimedDelivery markInFlight(Due d, Instant now) {
@@ -132,6 +144,9 @@ class PostgresDeliveryQueue implements DeliveryQueue {
                 .query(Long.class)
                 .single();
         int attempt = d.attemptCount() + 1;
+        if (attempt == 1 && d.nextAttemptAt() != null) {
+            metrics.queueWait(d.channel(), d.priority(), Duration.between(d.nextAttemptAt(), now));
+        }
         audit.record(d.notificationId(), d.id(), d.sourceSystem(), AuditEventType.DELIVERY_ATTEMPTED, null,
                 AuditDetails.create().recipientId(d.recipientId()).channel(d.channel()).attempt(attempt).build());
         return new ClaimedDelivery(d.id(), d.notificationId(), d.sourceSystem(), d.eventId(), d.type(), d.severity(),

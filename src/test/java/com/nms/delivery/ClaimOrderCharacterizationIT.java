@@ -52,7 +52,9 @@ class ClaimOrderCharacterizationIT extends PriorityTestSupport {
         assertThat(deliveryStatus(atClaim)).isEqualTo("EXPIRED");
         assertThat(deliveryStatus(atRetry)).isEqualTo("EXPIRED");
         assertThat(expiredEmail() - before).isEqualTo(2.0);
+        // Intended diff from clarify-delivery-priority: the counter gained the tags priority and neverAttempted.
         assertThat(meters.find(DeliveryMetrics.EXPIRED).counters())
-                .allSatisfy(c -> assertThat(c.getId().getTags()).extracting(t -> t.getKey()).containsExactly("channel"));
+                .allSatisfy(c -> assertThat(c.getId().getTags()).extracting(t -> t.getKey())
+                        .containsExactlyInAnyOrder("channel", "priority", "neverAttempted"));
     }
 }

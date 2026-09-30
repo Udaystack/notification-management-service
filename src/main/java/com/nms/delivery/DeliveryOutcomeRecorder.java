@@ -106,7 +106,7 @@ class DeliveryOutcomeRecorder {
                 if (update(claim, DeliveryStatus.EXPIRED, failureClass, null, now)) {
                     audit.record(claim.notificationId(), claim.id(), claim.sourceSystem(),
                             AuditEventType.DELIVERY_EXPIRED, null, details.build());
-                    metrics.expired(claim.channel());
+                    metrics.expired(claim.channel(), claim.priority(), false);
                 }
             }
         }
