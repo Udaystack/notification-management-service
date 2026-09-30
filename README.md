@@ -82,8 +82,6 @@ This README describes the **`ambiguous-requirements`** branch. It contains all t
 
 | Tool | Role |
 |---|---|
-| Claude Code | AI coding agent: reads the code, asks clarifying questions, writes specs and code, runs builds, tests, and git |
-| OpenSpec | Spec-driven change workflow: each change is a proposal, delta specs (requirements with scenarios), a design, and tasks; `openspec validate --strict`; archiving merges the deltas into `openspec/specs/` |
 | Maven, JUnit 5, MockMvc, Testcontainers, WireMock | Build and tests against a real PostgreSQL 16 and a stub HTTP server |
 | Docker Compose, `scripts/demo.sh`, k6 | Local database, end-to-end demo, load test |
 | Git, GitHub | One branch per scenario; grouped, reviewable commits |
