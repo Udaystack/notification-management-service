@@ -26,8 +26,10 @@ class ClaimOrderCharacterizationIT extends PriorityTestSupport {
         UUID normalReclaim = reclaimable("NORMAL", Duration.ofMinutes(10));
         UUID high = pending("HIGH", Duration.ofMinutes(1));
 
+        // Intended diff from clarify-delivery-priority: the reclaim used to sort last within NORMAL (its
+        // next_attempt_at is NULL); it now competes by lease expiry (10m ago), which makes it the oldest due.
         assertThat(worker.claim(10)).extracting(ClaimedDelivery::id)
-                .containsExactly(high, normalRetry, normalNew, normalReclaim, lowOld);
+                .containsExactly(high, normalReclaim, normalRetry, normalNew, lowOld);
     }
 
     @Autowired

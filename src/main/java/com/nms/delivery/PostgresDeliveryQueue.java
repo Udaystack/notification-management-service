@@ -21,6 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Claims deliveries with {@code FOR UPDATE SKIP LOCKED} in one short transaction, so concurrent workers (and
  * instances) never claim the same row. A claim counts as an attempt.
+ *
+ * <p>Order: effective rank (priority rank plus one per full {@code nms.worker.priority-aging} interval since the due
+ * time, capped at HIGH), then due time, oldest first. The due time is {@code next_attempt_at}, or the lease expiry for
+ * a reclaimed {@code IN_FLIGHT} row; a retry's backoff therefore never counts as waiting.
  */
 @Component
 class PostgresDeliveryQueue implements DeliveryQueue {
@@ -56,11 +60,16 @@ class PostgresDeliveryQueue implements DeliveryQueue {
                 FROM delivery d JOIN notification n ON n.id = d.notification_id
                 WHERE (d.status IN ('PENDING', 'RETRY_SCHEDULED') AND d.next_attempt_at <= :now)
                    OR (d.status = 'IN_FLIGHT' AND d.locked_until < :now)
-                ORDER BY n.priority_rank DESC, d.next_attempt_at
+                ORDER BY LEAST(2, n.priority_rank + CASE WHEN :agingSeconds > 0
+                             THEN floor(extract(epoch FROM (:now - COALESCE(d.next_attempt_at, d.locked_until)))
+                                        / :agingSeconds)
+                             ELSE 0 END) DESC,
+                         COALESCE(d.next_attempt_at, d.locked_until)
                 LIMIT :limit
                 FOR UPDATE OF d SKIP LOCKED
                 """)
                 .param("now", Timestamp.from(now))
+                .param("agingSeconds", properties.worker().priorityAging().toMillis() / 1000.0)
                 .param("limit", limit)
                 .query((rs, row) -> new Due(
                         rs.getObject("id", UUID.class),

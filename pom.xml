@@ -135,5 +135,31 @@
                 </plugins>
             </build>
         </profile>
+        <!-- Runs the whole suite with priority aging off (strict priority): mvn verify -Paging-off -->
+        <profile>
+            <id>aging-off</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <nms.worker.priority-aging>0</nms.worker.priority-aging>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <nms.worker.priority-aging>0</nms.worker.priority-aging>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 </project>

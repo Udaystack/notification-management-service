@@ -30,10 +30,12 @@ All service settings live under `nms.*` in `src/main/resources/application.yml`.
 ```bash
 mvn verify                # event deduplication on (default)
 mvn verify -Pdedup-off    # the same suite with nms.dedup.enabled=false
+mvn verify -Paging-off    # the same suite with nms.worker.priority-aging=0 (strict priority)
 ```
 
 The `dedup-off` profile proves that switching deduplication off restores the previous behavior;
-deduplication tests set the flag they need themselves, so they pass in both runs. Unit tests run with Surefire (`*Test`); integration tests run with Failsafe (`*IT`) against a
+deduplication tests set the flag they need themselves, so they pass in both runs. The `aging-off`
+profile does the same for priority aging; claim-order tests pin their own aging interval. Unit tests run with Surefire (`*Test`); integration tests run with Failsafe (`*IT`) against a
 throwaway PostgreSQL 16 Testcontainer, so Docker must be running. The local Compose database is
 not used by tests.
 
